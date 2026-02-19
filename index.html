@@ -631,7 +631,7 @@ const UUID_MI_SVC       = 'ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6';
 const UUID_MI_TEMP_CHAR = 'ebe0ccc1-7a0a-4b0c-8a1a-6ff2997da3a6';
 
 /* __BUILD_HASH__ is replaced by pre-commit hook with the short git commit hash */
-const BUILD_HASH = '__BUILD_HASH__';
+const BUILD_HASH = '8f1ed47';
 
 const BLE_OPTIONAL_SVCS = [
   UUID_CUSTOM_SVC, UUID_OTA_SVC, UUID_MI_SVC,
@@ -1349,8 +1349,8 @@ function onMiNotification(sensorId, event) {
   renderDashboard();
 }
 
-function roundTemp(v) { var r = Math.round(v / 0.3) * 0.3; return Math.round(r * 10) / 10; }
-function roundHumi(v) { return Math.round(v / 3) * 3; }
+function roundTemp(v) { return Math.round(v * 10) / 10; }   // 0.1°C — matches SHT4x ±0.2°C accuracy
+function roundHumi(v) { return Math.round(v); }              // 1% RH — matches SHT4x ±1.8% accuracy
 
 function vbatToPercent(mv) {
   var pct = Math.round(((mv / 1000) - 2.1) / (3.1 - 2.1) * 100);
@@ -1477,8 +1477,15 @@ async function startAdvertScan() {
   }
 
   if (watchCount === 0) {
-    showAlert('No devices available for advertisement watching. Pair sensors first in Poll mode, then switch to Advert.', 'warn');
-    blePerf.add('ADV', 'No devices could be watched — 0 active sensors, 0 paired devices', null);
+    var hasAnyApi = navigator.bluetooth.requestLEScan || navigator.bluetooth.getDevices ||
+      Object.values(sensors).some(function(s) { return s.device && s.device.watchAdvertisements; });
+    if (!hasAnyApi) {
+      showAlert('Advertisement mode requires experimental Chrome flags. Enable "Experimental Web Platform features" at chrome://flags', 'error');
+      blePerf.add('ADV', 'No BLE scanning APIs available — enable chrome://flags/#enable-experimental-web-platform-features', null);
+    } else {
+      showAlert('No devices available for advertisement watching. Connect sensors in Poll mode first, then switch to Advert.', 'warn');
+      blePerf.add('ADV', 'No devices could be watched', null);
+    }
     settings.bleMode = 'poll'; saveSettings(); updateBleModeUI();
     return;
   }
