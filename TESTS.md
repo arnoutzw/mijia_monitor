@@ -1,11 +1,11 @@
-# FilaMon — Manual Test Cases
+# FSCMS — Manual Test Cases
 
-Since FilaMon relies on Web Bluetooth and physical BLE sensors, testing is primarily manual. This document lists all test scenarios.
+Since FSCMS relies on Web Bluetooth and physical BLE sensors, testing is primarily manual. This document lists all test scenarios.
 
 ## Prerequisites
 
 - Chrome/Edge browser with Web Bluetooth support
-- At least one Mijia LYWSD03MMC sensor (ATC firmware preferred)
+- At least one Mijia LYWSD03MMC sensor (ATC custom firmware preferred)
 - Bluetooth enabled on test device
 
 ---
@@ -62,7 +62,7 @@ Since FilaMon relies on Web Bluetooth and physical BLE sensors, testing is prima
 ### 3.2 Forget Execution
 - Click **Forget** → **Yes, Forget**
 - Verify sensor card is removed
-- Verify sensor is removed from localStorage (knownDevices, settings.names, settings.pollRates)
+- Verify sensor is removed from localStorage (knownDevices, settings.names)
 - Verify IndexedDB history for that sensor is deleted
 - Verify debug panel no longer shows perf stats for that sensor
 
@@ -71,11 +71,11 @@ Since FilaMon relies on Web Bluetooth and physical BLE sensors, testing is prima
 ## 4. Data Display
 
 ### 4.1 Temperature Rounding
-- Verify temperature displays rounded to 0.1°C (e.g., 23.4°, not 23.42°)
+- Verify temperature displays rounded to 0.3°C steps (e.g., 21.0, 21.3, 21.6, 21.9)
 - Check both dashboard cards and debug log
 
 ### 4.2 Humidity Rounding
-- Verify humidity displays rounded to nearest 0.5% (e.g., 45.0%, 45.5%, 46.0%)
+- Verify humidity displays rounded to nearest 3% steps (e.g., 42, 45, 48, 51)
 - Check both dashboard cards and alert messages
 
 ### 4.3 Battery
@@ -98,11 +98,11 @@ Since FilaMon relies on Web Bluetooth and physical BLE sensors, testing is prima
 ### 5.2 IndexedDB Persistence
 - Connect sensor, collect some data
 - Reload page → verify chart still shows historical data
-- Verify data older than 7 days is automatically cleaned up
+- Verify data older than retention period is automatically cleaned up
 
 ---
 
-## 6. Alerts
+## 6. Humidity Alerts
 
 ### 6.1 Warning Threshold
 - Set warning threshold to a value below current humidity (Settings)
@@ -121,105 +121,221 @@ Since FilaMon relies on Web Bluetooth and physical BLE sensors, testing is prima
 
 ---
 
-## 7. Polling Rates
+## 7. Battery Alerts
 
-### 7.1 Rate Selection
-- On a connected sensor card, find the polling rate dropdown (timer icon)
-- Change rate from default to 30s
-- Verify readings slow down accordingly (check debug panel timing)
+### 7.1 Low Battery Warning
+- Use a sensor with battery below 20%
+- Verify that after 5 consecutive frames below 20%, a "Low Battery Level Warning" alert fires
+- Verify 1-hour cooldown before re-alerting for the same sensor
 
-### 7.2 Per-Sensor Independence
-- Set Sensor A to 5s and Sensor B to 5m
-- Verify A gets frequent updates while B updates slowly
+### 7.2 Critical Battery Warning
+- Use a sensor with battery at or below 10%
+- Verify immediate "Critical Battery Level Warning, Replace battery as soon as possible!" alert
+- Verify push notification fires (if permission granted)
+- Verify 1-hour cooldown before re-alerting
 
-### 7.3 Persistence
-- Change polling rate, reload page, reconnect
-- Verify the saved rate is restored from localStorage
+### 7.3 Counter Reset
+- If battery goes back above 20%, verify the low-battery counter resets to 0
 
 ---
 
-## 8. Settings
+## 8. Battery Profiles
 
-### 8.1 Friendly Names
-- Click sensor name on card → enter a custom name
+### 8.1 Profile Selection
+- Open **Settings** → **Battery Profile**
+- Verify four profiles displayed: Realtime, Balanced, Battery Saver, Ultra Saver
+- Verify active profile is highlighted with amber border
+- Select a different profile → verify it highlights and saves
+
+### 8.2 Firmware Write
+- Connect a sensor, then select a different battery profile
+- Verify cmd 0x55 is written to the sensor (check BLE Performance Log)
+- Verify status message shows "Profile applied to 1/1 sensor(s)"
+- Verify firmware measure_interval, advertising_interval, and tx_power change
+
+### 8.3 No Sensors Connected
+- Disconnect all sensors, change battery profile
+- Verify message: "Profile saved locally. Will apply to sensors when connected via Flasher."
+
+### 8.4 Persistence
+- Change battery profile, reload page
+- Verify saved profile is restored from localStorage
+
+### 8.5 Storage Throttle
+- Select "Realtime" profile (10s storage rate) → verify IndexedDB entries every ~10s
+- Switch to "Ultra Saver" (300s storage rate) → verify entries slow down
+- Verify live dashboard card values still update on every notification regardless of throttle
+
+---
+
+## 9. BLE Mode Toggle
+
+### 9.1 Poll to Advert
+- Connect sensors in Poll mode
+- Toggle the BLE mode switch in the header to Advert
+- Verify `watchAdvertisements()` is started on connected devices (check BLE Performance Log)
+- Verify GATT connections are disconnected to save battery
+- Verify toggle turns amber and label shows "ADV"
+
+### 9.2 Advert Data Reception
+- In Advert mode, verify sensor cards still update with temperature/humidity/battery
+- Verify advertisement format is detected (PVVX Custom, ATC1441, BTHome, Mi-Like)
+
+### 9.3 Advert to Poll
+- Toggle back to Poll mode
+- Verify advertisement watching stops
+- Verify toggle returns to zinc/gray state
+
+### 9.4 No Devices Warning
+- Without any paired devices, switch to Advert mode
+- Verify warning: "No devices available for advertisement watching..."
+- Verify mode reverts to Poll automatically
+
+### 9.5 Persistence
+- Switch to Advert mode, reload the page
+- Verify mode is restored and scan resumes via `getDevices()` + `watchAdvertisements()`
+
+---
+
+## 10. Settings
+
+### 10.1 Friendly Names
+- Double-click sensor name on card → enter a custom name
 - Verify name persists across page reloads
 - Verify reconnect still works after renaming
 
-### 8.2 Threshold Configuration
+### 10.2 Threshold Configuration
 - Open settings, change warning/critical humidity thresholds
 - Verify new thresholds are applied immediately
 - Verify settings persist across reloads
 
+### 10.3 Data Retention
+- Change history retention days, verify old data is cleaned on next cleanup cycle
+
 ---
 
-## 9. OTA Firmware Flash
+## 11. Flasher Tab — Simple Mode
 
-### 9.1 File Validation
-- Click the flash icon on a connected sensor card
-- Upload a valid ATC firmware .bin file → verify info panel shows size, format
+### 11.1 File Validation
+- Open Flasher tab (default is Simple mode)
+- Upload a valid ATC firmware .bin file → verify info panel shows size
 - Upload a random non-firmware file → verify rejection with error message
 - Upload a file >512KB → verify "File too large" error
 
-### 9.2 Flash Process
-- Start OTA with valid firmware
+### 11.2 Flash Process
+- Start OTA with valid firmware on a connected sensor
 - Verify progress bar advances
 - Verify sensor reconnects after flash completes
 - **Caution:** Only test with known-good firmware files
 
 ---
 
-## 10. Debug Panel
+## 12. Flasher Tab — Advanced Mode
 
-### 10.1 Panel Access
+### 12.1 Mode Toggle
+- Click "Advanced" toggle in the Flasher tab
+- Verify Advanced panel shows with all sections: Device Connection, Sensor Config, Comfort Params, Triggers, Mi Auth, Device Management, Advanced OTA, Flasher Log
+
+### 12.2 Device Connection
+- Click Connect in Advanced mode → verify BLE pairing dialog
+- Verify device info populates (name, MAC, hardware/software version)
+- Click Disconnect → verify clean disconnect
+
+### 12.3 Sensor Configuration
+- Connect via Flasher → verify config auto-loads (adv type, intervals, TX power, offsets)
+- Change measure interval → Write Config → verify config is written (check Flasher Log)
+- Read config back → verify changes persisted on the device
+
+### 12.4 Mi Authorization
+- Click "Get Bind Key" → verify bind key is retrieved and displayed (cmd 0x44 response)
+- Verify bind key hex string appears in the input field
+
+### 12.5 Remote Firmware Load
+- Click "Load from GitHub" → verify firmware binary loads from remote URL
+- Verify file info shows after load
+
+### 12.6 Flasher Log
+- Verify all operations produce color-coded log entries (info, success, error)
+- Verify log scrolls to latest entry automatically
+
+---
+
+## 13. About Tab
+
+### 13.1 Content
+- Open About tab → verify project overview, features list, tech stack grid, compatible devices, and credits are shown
+- Verify build hash is displayed
+
+---
+
+## 14. Alert History Bell
+
+### 14.1 Bell Badge
+- Trigger any alert → verify bell icon in header shows a count badge
+- Trigger more alerts → verify badge count increments
+
+### 14.2 Alert Panel
+- Click bell → verify alert history panel opens with timestamped entries
+- Verify color coding (yellow for warning, red for critical)
+
+---
+
+## 15. Debug Panel
+
+### 15.1 Panel Access
 - Click the **Debug** button in the header
 - Verify modal opens with connection stats, notification rates, and event log
 
-### 10.2 Performance Metrics
+### 15.2 Performance Metrics
 - Connect a sensor, trigger some reads
 - Verify timing entries appear with color coding (green <100ms, yellow, amber, red >2s)
 - Verify notification rate stats (avg/min/max/count) per sensor
 
-### 10.3 Export
+### 15.3 Export
 - Click export in debug panel → verify log data can be copied/saved
 
-### 10.4 Clear
+### 15.4 Clear
 - Click clear → verify all perf stats and log entries are wiped
 
 ---
 
-## 11. PWA
+## 16. PWA
 
-### 11.1 Install Prompt
+### 16.1 Install Prompt
 - Open in Chrome on desktop or Android
 - Verify install prompt appears (or install option in browser menu)
 - Install → verify app opens in standalone window
 
-### 11.2 Offline Mode
+### 16.2 Offline Mode
 - Install the PWA, then go offline (airplane mode / disable WiFi)
 - Open the app → verify it loads from service worker cache
 - Verify previously connected sensor data is still visible from IndexedDB
 
-### 11.3 Responsive Layout
+### 16.3 Responsive Layout
 - Test at phone width (~375px) → verify single-column card layout
 - Test at tablet width (~768px) → verify cards adjust
 - Test at desktop width (~1200px) → verify multi-column grid
 
 ---
 
-## 12. Edge Cases
+## 17. Edge Cases
 
-### 12.1 No Bluetooth
+### 17.1 No Bluetooth
 - Open in a browser without Web Bluetooth (Firefox, Safari)
 - Verify graceful error message, no JS crashes
 
-### 12.2 Sensor Out of Range
+### 17.2 Sensor Out of Range
 - Connect sensor, then move it out of BLE range
 - Verify disconnect is detected and card updates to show Reconnect button
 
-### 12.3 Multiple Sensors
+### 17.3 Multiple Sensors
 - Connect 3 sensors simultaneously
 - Verify all cards render, charts work independently, no cross-sensor data contamination
 
-### 12.4 Rapid Connect/Disconnect
+### 17.4 Rapid Connect/Disconnect
 - Connect and disconnect the same sensor several times quickly
 - Verify no duplicate cards or ghost entries
+
+### 17.5 Notification Throttling
+- In Realtime profile, verify live card updates on every firmware push (~4s)
+- In Ultra Saver profile, verify card still updates live but IndexedDB stores only every ~5 min

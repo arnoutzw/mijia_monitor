@@ -96,6 +96,12 @@ tailwind.config = {
 
     <!-- Dashboard Tab -->
     <div class="tab-content" id="tab-dashboard">
+      <div class="flex items-center justify-end gap-2 mb-4">
+        <i data-lucide="battery-charging" class="w-3.5 h-3.5 text-zinc-500"></i>
+        <select id="batteryProfileSelect" onchange="selectBatteryProfile(this.value)" class="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 font-mono text-xs text-zinc-300 focus:border-amber-500 focus:outline-none cursor-pointer">
+        </select>
+        <span id="batteryProfileStatus" class="text-[10px] font-mono text-zinc-500 hidden"></span>
+      </div>
       <div id="sensorGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6"></div>
       <div id="connectPanel" class="text-center py-16 px-6">
         <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-zinc-800 border border-zinc-700 mb-4">
@@ -464,18 +470,6 @@ tailwind.config = {
     <!-- Settings Tab -->
     <div class="tab-content hidden" id="tab-settings">
       <div class="max-w-2xl mx-auto space-y-4">
-
-        <!-- Battery Profile -->
-        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
-          <h3 class="font-mono font-bold text-amber-500 text-sm mb-4 flex items-center gap-2">
-            <i data-lucide="battery-charging" class="w-4 h-4"></i> Battery Profile
-          </h3>
-          <p class="text-zinc-500 text-xs font-mono mb-4">Controls firmware measure interval, BLE advertising interval, and TX power. Applied to all connected sensors via cmd 0x55.</p>
-          <div class="grid grid-cols-2 gap-3" id="batteryProfileGrid">
-            <!-- Populated by renderBatteryProfiles() -->
-          </div>
-          <div id="batteryProfileStatus" class="mt-3 text-xs font-mono text-zinc-600 hidden"></div>
-        </div>
 
         <!-- Thresholds -->
         <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
@@ -1972,10 +1966,6 @@ function renderDashboard() {
           '</div>' +
           (s.vbat ? '<span class="text-zinc-600">' + (s.vbat / 1000).toFixed(2) + 'V</span>' : '') +
         '</div>' +
-        '<div class="flex items-center gap-1.5" title="Battery profile: ' + (BATTERY_PROFILES[settings.batteryProfile] || BATTERY_PROFILES['balanced']).label + '">' +
-          '<i data-lucide="battery-charging" class="w-3 h-3 text-zinc-600"></i>' +
-          '<span class="text-zinc-600">' + (BATTERY_PROFILES[settings.batteryProfile] || BATTERY_PROFILES['balanced']).label + '</span>' +
-        '</div>' +
         '<span>' + ago + '</span>' +
       '</div>' +
     '</div>';
@@ -2117,23 +2107,16 @@ function editFriendlyName(el, id) {
 
 /* ── Battery Profile UI & Firmware Write ── */
 function renderBatteryProfiles() {
-  var grid = document.getElementById('batteryProfileGrid');
-  if (!grid) return;
+  var sel = document.getElementById('batteryProfileSelect');
+  if (!sel) return;
   var current = settings.batteryProfile || DEFAULT_BATTERY_PROFILE;
   var html = '';
   Object.keys(BATTERY_PROFILES).forEach(function(key) {
     var p = BATTERY_PROFILES[key];
-    var active = key === current;
-    html += '<button onclick="selectBatteryProfile(\'' + key + '\')" class="text-left p-3 rounded-lg border transition-all ' +
-      (active
-        ? 'bg-amber-500/15 border-amber-500 text-amber-400'
-        : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500') + '">' +
-      '<div class="font-mono font-bold text-xs mb-1">' + esc(p.label) + '</div>' +
-      '<div class="text-[10px] text-zinc-500">' + esc(p.desc) + '</div>' +
-      '<div class="text-[10px] font-mono mt-1.5 text-zinc-600">Meas ' + p.measInterval + 's · Adv ' + (p.advInterval / 1000).toFixed(1) + 's · TX ' + p.txPower + '</div>' +
-    '</button>';
+    html += '<option value="' + key + '"' + (key === current ? ' selected' : '') + '>' +
+      p.label + ' — ' + p.desc + '</option>';
   });
-  grid.innerHTML = html;
+  sel.innerHTML = html;
 }
 
 function selectBatteryProfile(key) {
