@@ -36,7 +36,7 @@ tailwind.config = {
 <body class="bg-zinc-950 text-zinc-300 font-sans text-sm min-h-screen flex flex-col">
 
   <!-- Alert Banner -->
-  <div id="alertBanner" class="hidden bg-red-500/20 border-b border-red-500/50 text-red-400 px-5 py-3 text-center font-mono font-bold text-sm"></div>
+  <div id="alertBanner" class="hidden border-b px-5 py-3 text-center font-mono font-bold text-sm"></div>
 
   <!-- Header -->
   <header class="sticky top-0 z-40 bg-zinc-900/80 backdrop-blur-sm border-b border-zinc-800 px-4 md:px-6 py-3 flex items-center justify-between gap-3">
@@ -50,6 +50,10 @@ tailwind.config = {
     </div>
     <div class="flex gap-2 items-center">
       <div id="statusDot" class="w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-red-500/30" title="No devices connected"></div>
+      <button id="btnAlertHistory" onclick="openAlertHistory()" class="relative bg-zinc-700 hover:bg-zinc-600 text-zinc-400 text-xs font-mono p-2 rounded-lg transition-colors" title="Alert History">
+        <i data-lucide="bell" class="w-4 h-4"></i>
+        <span id="alertBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center"></span>
+      </button>
       <button id="btnReconnectAll" onclick="batchReconnect()" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-400 text-xs font-mono px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5" title="Reconnect all saved devices sequentially">
         <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Reconnect All
       </button>
@@ -163,11 +167,11 @@ tailwind.config = {
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <label class="text-zinc-400 text-sm">Warning level (%)</label>
-              <input type="number" id="setWarn" min="0" max="100" value="50" onchange="saveSettings()" class="w-24 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-sm text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
+              <input type="number" id="setWarn" min="0" max="100" value="60" onchange="saveSettings()" class="w-24 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-sm text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
             </div>
             <div class="flex items-center justify-between">
               <label class="text-zinc-400 text-sm">Critical level (%)</label>
-              <input type="number" id="setCrit" min="0" max="100" value="60" onchange="saveSettings()" class="w-24 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-sm text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
+              <input type="number" id="setCrit" min="0" max="100" value="80" onchange="saveSettings()" class="w-24 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-sm text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
             </div>
           </div>
         </div>
@@ -237,7 +241,7 @@ const HW_VERSIONS = [
 const MAX_EXT_OTA_SIZE = 0x34000;
 
 const sensors = {};
-let settings = { warn: 50, crit: 60, retention: 7, names: {}, pollRates: {} };
+let settings = { warn: 60, crit: 80, retention: 7, names: {}, pollRates: {} };
 // pollRates: { sensorId: seconds } — default 10s, options: 5, 30, 60, 300, 1800
 var POLL_OPTIONS = [
   { value: 5, label: '5s' },
@@ -250,6 +254,8 @@ var DEFAULT_POLL_RATE = 10; // seconds
 var sensorLastPolled = {}; // { sensorId: timestamp ms }
 let knownDevices = {};  // { deviceId: { deviceName, lastSeen } } — persisted in localStorage
 let alertCooldowns = {};
+var alertHistory = [];  // { msg, type, time }
+var alertUnread = 0;
 let firmwareData = null;
 let firmwareInfo = null;
 let otaInProgress = false;
@@ -417,9 +423,9 @@ function confirmForgetDevice() {
 var batchReconnectActive = false;
 
 async function batchReconnect() {
-  if (batchReconnectActive) { showAlert('Reconnect already in progress...'); return; }
+  if (batchReconnectActive) { showAlert('Reconnect already in progress...', 'warn'); return; }
   if (!navigator.bluetooth || !navigator.bluetooth.getDevices) {
-    showAlert('getDevices() not supported — use individual Reconnect buttons.');
+    showAlert('getDevices() not supported — use individual Reconnect buttons.', 'error');
     blePerf.add('RECONN', 'getDevices() not supported', null);
     return;
   }
@@ -448,7 +454,7 @@ async function batchReconnect() {
     blePerf.add('RECONN', 'Batch start: ' + pending.length + ' disconnected of ' + pairedDevices.length + ' paired (' + knownIds.length + ' saved)', null);
 
     if (pending.length === 0) {
-      showAlert('All saved devices are already connected.');
+      showAlert('All saved devices are already connected.', 'success');
       batchReconnectActive = false;
       updateConnectionStatus(getOverallStatus());
       updateReconnectButton(false);
@@ -485,10 +491,10 @@ async function batchReconnect() {
     blePerf.add('RECONN', 'Batch complete', performance.now() - batchStart, {
       ok: succeeded, fail: failed, total: pending.length
     });
-    showAlert('Reconnect done: ' + succeeded + ' connected, ' + failed + ' failed of ' + pending.length);
+    showAlert('Reconnect done: ' + succeeded + ' connected, ' + failed + ' failed of ' + pending.length, failed === 0 ? 'success' : 'warn');
   } catch (err) {
     blePerf.add('RECONN', 'Batch error: ' + err.message, performance.now() - batchStart);
-    showAlert('Reconnect error: ' + err.message);
+    showAlert('Reconnect error: ' + err.message, 'error');
   } finally {
     batchReconnectActive = false;
     updateConnectionStatus(getOverallStatus());
@@ -500,7 +506,7 @@ async function batchReconnect() {
 function cancelBatchReconnect() {
   if (batchReconnectActive) {
     batchReconnectActive = false;
-    showAlert('Reconnect cancelled.');
+    showAlert('Reconnect cancelled.', 'warn');
     blePerf.add('RECONN', 'Batch cancelled by user', null);
   }
 }
@@ -582,6 +588,7 @@ function loadSettings() {
     var s = JSON.parse(localStorage.getItem('filamon_settings'));
     if (s) settings = Object.assign({}, settings, s);
   } catch (e) {}
+  if (!settings.names) settings.names = {};
   if (!settings.pollRates) settings.pollRates = {};
   document.getElementById('setWarn').value = settings.warn;
   document.getElementById('setCrit').value = settings.crit;
@@ -589,8 +596,8 @@ function loadSettings() {
 }
 
 function saveSettings() {
-  settings.warn = parseInt(document.getElementById('setWarn').value) || 50;
-  settings.crit = parseInt(document.getElementById('setCrit').value) || 60;
+  settings.warn = parseInt(document.getElementById('setWarn').value) || 60;
+  settings.crit = parseInt(document.getElementById('setCrit').value) || 80;
   settings.retention = parseInt(document.getElementById('setRetention').value) || 7;
   localStorage.setItem('filamon_settings', JSON.stringify(settings));
   renderDashboard();
@@ -625,17 +632,17 @@ async function autoPairATC() {
       });
       // Skip if already connected
       if (sensors[device.id] && sensors[device.id].server) {
-        showAlert('Already connected: ' + (device.name || device.id));
+        showAlert('Already connected: ' + (device.name || device.id), 'warn');
         continue;
       }
       await connectDevice(device, false);
       paired++;
-      showAlert('Paired ' + paired + ' sensor(s). Select next or cancel picker to finish.');
+      showAlert('Paired ' + paired + ' sensor(s). Select next or cancel picker to finish.', 'success');
     } catch (err) {
       // User cancelled the picker — stop looping
       autoPairActive = false;
       if (paired > 0) {
-        showAlert('Auto Pair complete: ' + paired + ' sensor(s) paired.');
+        showAlert('Auto Pair complete: ' + paired + ' sensor(s) paired.', 'success');
       }
       break;
     }
@@ -885,22 +892,93 @@ function checkAlerts(sensorId, humi) {
     if (!alertCooldowns[sensorId] || now - alertCooldowns[sensorId] > cooldown) {
       alertCooldowns[sensorId] = now;
       var name = settings.names[sensorId] || s.name;
-      showAlert('CRITICAL: ' + name + ' humidity at ' + humi.toFixed(1) + '%');
+      showAlert('CRITICAL: ' + name + ' humidity at ' + humi.toFixed(1) + '%', 'critical');
       sendNotification(name + ': Humidity Critical!', 'Humidity is ' + humi.toFixed(1) + '% — above ' + settings.crit + '% threshold.');
     }
   } else if (humi >= settings.warn) {
     if (!alertCooldowns[sensorId] || now - alertCooldowns[sensorId] > cooldown) {
       alertCooldowns[sensorId] = now;
-      showAlert('WARNING: ' + (settings.names[sensorId] || s.name) + ' humidity at ' + humi.toFixed(1) + '%');
+      showAlert('WARNING: ' + (settings.names[sensorId] || s.name) + ' humidity at ' + humi.toFixed(1) + '%', 'warn');
     }
   }
 }
 
-function showAlert(msg) {
+function showAlert(msg, type) {
   var banner = document.getElementById('alertBanner');
   banner.textContent = msg;
-  banner.classList.remove('hidden');
-  setTimeout(function() { banner.classList.add('hidden'); }, 10000);
+  banner.className = 'border-b px-5 py-3 text-center font-mono font-bold text-sm';
+  if (type === 'error' || type === 'critical') {
+    banner.className += ' bg-red-500/20 border-red-500/50 text-red-400';
+  } else if (type === 'warn') {
+    banner.className += ' bg-yellow-500/20 border-yellow-500/50 text-yellow-400';
+  } else if (type === 'success') {
+    banner.className += ' bg-green-500/20 border-green-500/50 text-green-400';
+  } else {
+    banner.className += ' bg-zinc-700/40 border-zinc-600/50 text-zinc-300';
+  }
+  setTimeout(function() { banner.classList.add('hidden'); }, type === 'critical' ? 15000 : 6000);
+
+  // Push to alert history
+  alertHistory.unshift({ msg: msg, type: type || 'info', time: new Date() });
+  if (alertHistory.length > 200) alertHistory.length = 200;
+  alertUnread++;
+  updateAlertBadge();
+}
+
+function updateAlertBadge() {
+  var badge = document.getElementById('alertBadge');
+  if (!badge) return;
+  if (alertUnread > 0) {
+    badge.textContent = alertUnread > 99 ? '99' : alertUnread;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+function openAlertHistory() {
+  alertUnread = 0;
+  updateAlertBadge();
+  renderAlertHistory();
+  document.getElementById('alertHistoryModal').classList.remove('hidden');
+  if (window.lucide) lucide.createIcons();
+}
+
+function closeAlertHistory() {
+  document.getElementById('alertHistoryModal').classList.add('hidden');
+}
+
+function clearAlertHistory() {
+  alertHistory = [];
+  alertUnread = 0;
+  updateAlertBadge();
+  renderAlertHistory();
+}
+
+function renderAlertHistory() {
+  var list = document.getElementById('alertHistoryList');
+  var countEl = document.getElementById('alertHistoryCount');
+  if (!list) return;
+  if (countEl) countEl.textContent = alertHistory.length + ' alert' + (alertHistory.length !== 1 ? 's' : '');
+  if (alertHistory.length === 0) {
+    list.innerHTML = '<div class="text-zinc-600 font-mono text-xs py-8 text-center">No alerts yet.</div>';
+    return;
+  }
+  list.innerHTML = alertHistory.map(function(a) {
+    var colors = { critical: 'text-red-400 bg-red-500/10 border-red-500/20', error: 'text-red-400 bg-red-500/10 border-red-500/20', warn: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20', success: 'text-green-400 bg-green-500/10 border-green-500/20', info: 'text-zinc-300 bg-zinc-800/50 border-zinc-700/50' };
+    var dot = { critical: 'bg-red-400', error: 'bg-red-400', warn: 'bg-yellow-400', success: 'bg-green-400', info: 'bg-zinc-500' };
+    var cls = colors[a.type] || colors.info;
+    var dotCls = dot[a.type] || dot.info;
+    var t = a.time;
+    var ts = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0') + ':' + String(t.getSeconds()).padStart(2, '0');
+    return '<div class="flex items-start gap-2.5 px-3 py-2 rounded-lg border ' + cls + '">' +
+      '<div class="w-2 h-2 rounded-full mt-1 shrink-0 ' + dotCls + '"></div>' +
+      '<div class="flex-1 min-w-0">' +
+        '<div class="font-mono text-xs leading-relaxed break-words">' + esc(a.msg) + '</div>' +
+      '</div>' +
+      '<div class="text-[10px] text-zinc-600 font-mono shrink-0 mt-0.5">' + ts + '</div>' +
+    '</div>';
+  }).join('');
 }
 
 function sendNotification(title, body) {
@@ -1050,7 +1128,7 @@ function renderCharts() {
 
     getHistory(id, 24).then(function(history) {
       if (history.length === 0) return;
-      var tempData = history.map(function(h) { return { x: h.time, y: h.temp }; });
+      var tempData = history.map(function(h) { return { x: h.time, y: Math.round(h.temp * 5) / 5 }; });
       var humiData = history.map(function(h) { return { x: h.time, y: h.humi }; });
 
       if (s.chart) {
@@ -1592,6 +1670,27 @@ init();
     <div class="flex gap-3">
       <button onclick="closeForgetModal()" class="flex-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-mono font-bold px-4 py-2.5 rounded-lg transition-colors text-sm">Cancel</button>
       <button onclick="confirmForgetDevice()" class="flex-1 bg-red-500/20 hover:bg-red-500/40 text-red-400 font-mono font-bold px-4 py-2.5 rounded-lg transition-colors text-sm border border-red-500/30 hover:border-red-500/50">Forget</button>
+    </div>
+  </div>
+</div>
+
+<!-- Alert History Modal -->
+<div id="alertHistoryModal" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeAlertHistory()"></div>
+  <div class="relative bg-zinc-900 border border-zinc-700 sm:rounded-xl rounded-t-xl w-full sm:max-w-lg shadow-2xl flex flex-col" style="max-height:85vh">
+    <div class="flex justify-between items-center p-4 border-b border-zinc-800 shrink-0">
+      <div class="flex items-center gap-3">
+        <i data-lucide="bell" class="w-5 h-5 text-amber-500"></i>
+        <h2 class="font-mono font-bold text-zinc-100 text-lg">Alert History</h2>
+        <span id="alertHistoryCount" class="text-xs text-zinc-500 font-mono"></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="clearAlertHistory()" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors">Clear</button>
+        <button onclick="closeAlertHistory()" class="text-zinc-500 hover:text-zinc-300 transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+    </div>
+    <div id="alertHistoryList" class="px-3 py-3 overflow-y-auto flex-1 min-h-0 space-y-1.5">
+      <div class="text-zinc-600 font-mono text-xs py-8 text-center">No alerts yet.</div>
     </div>
   </div>
 </div>
