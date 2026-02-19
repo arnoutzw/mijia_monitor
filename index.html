@@ -50,6 +50,13 @@ tailwind.config = {
     </div>
     <div class="flex gap-2 items-center">
       <div id="statusDot" class="w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-red-500/30" title="No devices connected"></div>
+      <div id="bleModeToggle" class="flex items-center gap-1.5 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5" title="BLE receive mode">
+        <span id="bleModeLabel" class="text-[10px] font-mono text-zinc-500 hidden sm:inline">POLL</span>
+        <button onclick="toggleBleMode()" class="relative w-9 h-5 rounded-full transition-colors bg-zinc-600" id="bleModeSwitch">
+          <span id="bleModeDot" class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-zinc-300 transition-all duration-200"></span>
+        </button>
+        <span id="bleModeLabel2" class="text-[10px] font-mono text-zinc-500 hidden sm:inline">ADV</span>
+      </div>
       <button id="btnAlertHistory" onclick="openAlertHistory()" class="relative bg-zinc-700 hover:bg-zinc-600 text-zinc-400 text-xs font-mono p-2 rounded-lg transition-colors" title="Alert History">
         <i data-lucide="bell" class="w-4 h-4"></i>
         <span id="alertBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center"></span>
@@ -636,7 +643,8 @@ const HW_VERSIONS = [
 const MAX_EXT_OTA_SIZE = 0x34000;
 
 const sensors = {};
-let settings = { warn: 60, crit: 80, retention: 7, names: {}, pollRates: {} };
+let settings = { warn: 60, crit: 80, retention: 7, names: {}, pollRates: {}, bleMode: 'poll' };
+// bleMode: 'poll' (connected + write 0x33) or 'advert' (passive BLE scan)
 // pollRates: { sensorId: seconds } — default 10s, options: 5, 30, 60, 300, 1800
 var POLL_OPTIONS = [
   { value: 5, label: '5s' },
@@ -645,8 +653,10 @@ var POLL_OPTIONS = [
   { value: 300, label: '5m' },
   { value: 1800, label: '30m' }
 ];
-var DEFAULT_POLL_RATE = 10; // seconds
+var DEFAULT_POLL_RATE = 300; // seconds (5 minutes — battery friendly)
 var sensorLastPolled = {}; // { sensorId: timestamp ms }
+var advScanActive = false;  // is BLE advertisement scanning running?
+var advScanAbort = null;    // AbortController for stopping scan
 let knownDevices = {};  // { deviceId: { deviceName, lastSeen } } — persisted in localStorage
 let alertCooldowns = {};
 var battLowCount = {};     // { sensorId: consecutiveFramesBelowThreshold }
@@ -987,9 +997,11 @@ function loadSettings() {
   } catch (e) {}
   if (!settings.names) settings.names = {};
   if (!settings.pollRates) settings.pollRates = {};
+  if (!settings.bleMode) settings.bleMode = 'poll';
   document.getElementById('setWarn').value = settings.warn;
   document.getElementById('setCrit').value = settings.crit;
   document.getElementById('setRetention').value = settings.retention;
+  updateBleModeUI();
 }
 
 function saveSettings() {
@@ -1279,6 +1291,390 @@ function roundHumi(v) { return Math.round(v * 2) / 2; }
 function vbatToPercent(mv) {
   var pct = Math.round(((mv / 1000) - 2.1) / (3.1 - 2.1) * 100);
   return Math.max(0, Math.min(100, pct));
+}
+
+/* ── BLE Mode Toggle: Poll vs Advertisement ── */
+function toggleBleMode() {
+  var newMode = settings.bleMode === 'poll' ? 'advert' : 'poll';
+  setBleMode(newMode);
+}
+
+function setBleMode(mode) {
+  settings.bleMode = mode;
+  saveSettings();
+  updateBleModeUI();
+
+  if (mode === 'advert') {
+    startAdvertScan();
+  } else {
+    stopAdvertScan();
+  }
+  blePerf.add('MODE', 'BLE mode → ' + mode, null);
+}
+
+function updateBleModeUI() {
+  var sw = document.getElementById('bleModeSwitch');
+  var dot = document.getElementById('bleModeDot');
+  var label = document.getElementById('bleModeLabel');
+  var label2 = document.getElementById('bleModeLabel2');
+  if (!sw) return;
+
+  if (settings.bleMode === 'advert') {
+    sw.className = 'relative w-9 h-5 rounded-full transition-colors bg-amber-500';
+    dot.className = 'absolute top-0.5 left-[18px] w-4 h-4 rounded-full bg-zinc-900 transition-all duration-200';
+    if (label) label.className = 'text-[10px] font-mono text-zinc-500 hidden sm:inline';
+    if (label2) label2.className = 'text-[10px] font-mono text-amber-400 hidden sm:inline';
+  } else {
+    sw.className = 'relative w-9 h-5 rounded-full transition-colors bg-zinc-600';
+    dot.className = 'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-zinc-300 transition-all duration-200';
+    if (label) label.className = 'text-[10px] font-mono text-zinc-300 hidden sm:inline';
+    if (label2) label2.className = 'text-[10px] font-mono text-zinc-500 hidden sm:inline';
+  }
+}
+
+var advWatchedDevices = []; // devices with active watchAdvertisements()
+
+async function startAdvertScan() {
+  if (advScanActive) return;
+
+  if (!navigator.bluetooth) {
+    showAlert('Web Bluetooth not supported', 'error');
+    settings.bleMode = 'poll'; saveSettings(); updateBleModeUI();
+    return;
+  }
+
+  blePerf.add('ADV', 'Starting advertisement watch...', null);
+  advWatchedDevices = [];
+  var watchCount = 0;
+
+  // Strategy 1: Watch already-connected sensor device objects
+  var sensorDevices = Object.values(sensors).filter(function(s) { return s.device && s.device.watchAdvertisements; });
+  for (var i = 0; i < sensorDevices.length; i++) {
+    try {
+      var dev = sensorDevices[i].device;
+      dev.addEventListener('advertisementreceived', onAdvertReceived);
+      await dev.watchAdvertisements();
+      advWatchedDevices.push({ device: dev });
+      watchCount++;
+      blePerf.add('ADV', 'Watching: ' + (dev.name || dev.id.substr(0, 8)), null);
+    } catch (e) {
+      blePerf.add('ADV', 'watchAdvertisements failed on sensor: ' + e.message, null);
+    }
+  }
+
+  // Strategy 2: Use getDevices() for previously paired but not yet connected
+  if (navigator.bluetooth.getDevices) {
+    try {
+      var pairedDevices = await navigator.bluetooth.getDevices();
+      var knownIds = Object.keys(knownDevices);
+      var alreadyWatching = advWatchedDevices.map(function(w) { return w.device.id; });
+
+      for (var j = 0; j < pairedDevices.length; j++) {
+        var pd = pairedDevices[j];
+        if (alreadyWatching.indexOf(pd.id) !== -1) continue; // already watching
+        if (knownIds.indexOf(pd.id) === -1) continue; // not a known sensor
+        if (!pd.watchAdvertisements) continue; // API not available on this device
+
+        try {
+          pd.addEventListener('advertisementreceived', onAdvertReceived);
+          await pd.watchAdvertisements();
+          advWatchedDevices.push({ device: pd });
+          watchCount++;
+          blePerf.add('ADV', 'Watching (paired): ' + (pd.name || pd.id.substr(0, 8)), null);
+        } catch (e2) {
+          blePerf.add('ADV', 'watchAdvertisements failed on paired device: ' + e2.message, null);
+        }
+      }
+    } catch (e3) {
+      blePerf.add('ADV', 'getDevices() failed: ' + e3.message, null);
+    }
+  }
+
+  // Strategy 3: Fallback to requestLEScan if watchAdvertisements found nothing
+  if (watchCount === 0 && navigator.bluetooth.requestLEScan) {
+    try {
+      blePerf.add('ADV', 'No paired devices to watch, trying requestLEScan...', null);
+      advScanAbort = new AbortController();
+      await navigator.bluetooth.requestLEScan({
+        filters: [{ namePrefix: 'ATC_' }],
+        keepRepeatedDevices: true
+      }, { signal: advScanAbort.signal });
+      navigator.bluetooth.addEventListener('advertisementreceived', onAdvertReceived);
+      watchCount++;
+      blePerf.add('ADV', 'requestLEScan active (fallback)', null);
+    } catch (e4) {
+      blePerf.add('ADV', 'requestLEScan fallback failed: ' + e4.message, null);
+    }
+  }
+
+  if (watchCount === 0) {
+    showAlert('No devices available for advertisement watching. Pair sensors first in Poll mode, then switch to Advert.', 'warn');
+    blePerf.add('ADV', 'No devices could be watched', null);
+    settings.bleMode = 'poll'; saveSettings(); updateBleModeUI();
+    return;
+  }
+
+  advScanActive = true;
+  showAlert('Advertisement watching active — ' + watchCount + ' device(s) in passive mode', 'success');
+  blePerf.add('ADV', 'Watch started: ' + watchCount + ' device(s)', null);
+  updateConnectionStatus('connected');
+
+  // Disconnect GATT connections to save sensor battery
+  Object.values(sensors).forEach(function(s) {
+    if (s.server) {
+      try { s.server.disconnect(); } catch (e) {}
+      blePerf.add('ADV', 'Disconnected GATT for ' + (settings.names[s.id] || s.name) + ' (battery save)', null);
+    }
+  });
+}
+
+function stopAdvertScan() {
+  // Remove listeners from all watched devices
+  advWatchedDevices.forEach(function(w) {
+    try { w.device.removeEventListener('advertisementreceived', onAdvertReceived); } catch (e) {}
+  });
+  advWatchedDevices = [];
+
+  // Also remove global listener + abort controller (for requestLEScan fallback)
+  try { navigator.bluetooth.removeEventListener('advertisementreceived', onAdvertReceived); } catch (e) {}
+  if (advScanAbort) {
+    try { advScanAbort.abort(); } catch (e) {}
+    advScanAbort = null;
+  }
+
+  advScanActive = false;
+  blePerf.add('ADV', 'Watch stopped', null);
+}
+
+function onAdvertReceived(event) {
+  var device = event.device;
+  var name = event.name || device.name || '';
+  var id = device.id;
+
+  // Only process ATC_ named devices or known devices
+  if (!name.startsWith('ATC_') && !knownDevices[id]) return;
+
+  blePerf.trackNotification(id);
+
+  // serviceData is a Map: key = UUID string, value = DataView
+  // Iterate the Map like the Chrome sample: .forEach((valueDataView, key) => ...)
+  var serviceData = event.serviceData;
+  var parsed = false;
+
+  if (serviceData && serviceData.size > 0) {
+    serviceData.forEach(function(dataView, uuid) {
+      if (parsed) return; // already matched
+      var uuidStr = String(uuid).toLowerCase();
+      var len = dataView.byteLength;
+
+      // Match by UUID — keys come as full 128-bit UUID strings
+      // 0x181A → '0000181a-0000-1000-8000-00805f9b34fb' (Environmental Sensing)
+      if (uuidStr.indexOf('181a') === 4 || uuidStr === '181a' || uuid === 0x181A) {
+        if (len >= 13) {
+          parseAdvPVVX(id, name, dataView);
+          parsed = true;
+        } else if (len >= 10) {
+          parseAdvATC1441(id, name, dataView);
+          parsed = true;
+        }
+      }
+      // 0xFCD2 → BTHome v2
+      else if (uuidStr.indexOf('fcd2') === 4 || uuidStr === 'fcd2' || uuid === 0xFCD2) {
+        if (len >= 3) {
+          parseAdvBTHome(id, name, dataView);
+          parsed = true;
+        }
+      }
+      // 0xFE95 → Xiaomi Mi
+      else if (uuidStr.indexOf('fe95') === 4 || uuidStr === 'fe95' || uuid === 0xFE95) {
+        if (len >= 5) {
+          parseAdvMiLike(id, name, dataView);
+          parsed = true;
+        }
+      }
+    });
+  }
+
+  // Also log RSSI and txPower if available
+  if (parsed && (event.rssi !== undefined || event.txPower !== undefined)) {
+    var s = sensors[id];
+    if (s) {
+      s.rssi = event.rssi;
+      s.txPower = event.txPower;
+    }
+  }
+
+  // Even if we couldn't parse service data, register the device if it has a name
+  if (!parsed && name.startsWith('ATC_')) {
+    ensureAdvSensor(id, name);
+    // Log raw advert data for debugging
+    var rawKeys = [];
+    if (serviceData) serviceData.forEach(function(dv, key) { rawKeys.push(key + '(' + dv.byteLength + 'B)'); });
+    blePerf.add('ADV', 'Advert from ' + name + ' (unparsed: ' + (rawKeys.length ? rawKeys.join(', ') : 'no service data') + ')', null);
+  }
+}
+
+function ensureAdvSensor(id, name) {
+  if (!sensors[id]) {
+    sensors[id] = {
+      device: { id: id, name: name },
+      server: null, id: id,
+      name: settings.names[id] || name || 'Sensor',
+      customChar: null, otaChar: null, miTempChar: null,
+      temp: null, humi: null, batt: null, vbat: null,
+      count: 0, lastUpdate: null, chart: null,
+      hwVer: null, swVer: null, hwName: null, cfg: null,
+      advMode: true  // flag: data comes from advertisements
+    };
+  }
+  saveKnownDevice(id, name);
+}
+
+/* Parse PVVX Custom advertisement (UUID 0x181A, 13+ bytes)
+   [0-5] MAC, [6-7] temp(int16)/100, [8-9] humi(uint16)/100,
+   [10-11] vbat(uint16) mV, [12] batt% */
+function parseAdvPVVX(id, name, dv) {
+  ensureAdvSensor(id, name);
+  var s = sensors[id];
+  var temp = roundTemp(dv.getInt16(6, true) / 100.0);
+  var humi = roundHumi(dv.getUint16(8, true) / 100.0);
+  var vbat = dv.getUint16(10, true);
+  var batt = dv.getUint8(12);
+
+  s.temp = temp; s.humi = humi; s.vbat = vbat; s.batt = batt;
+  s.lastUpdate = new Date();
+  if (dv.byteLength >= 14) s.count = dv.getUint8(13);
+
+  var rate = blePerf.getSensorRate(id);
+  blePerf.add('ADV', 'PVVX ' + (settings.names[id] || name), null, {
+    temp: temp.toFixed(1), humi: humi.toFixed(1), batt: batt + '%',
+    interval: rate ? rate.avgMs + 'ms' : 'first'
+  });
+
+  storeReading(id, temp, humi, batt);
+  checkAlerts(id, humi);
+  checkBatteryAlerts(id, batt);
+  renderDashboard();
+}
+
+/* Parse ATC1441 advertisement (UUID 0x181A, 10-12 bytes)
+   [0-5] MAC, [6] temp_hi, [7] temp_lo, [8] humi%, [9] batt% */
+function parseAdvATC1441(id, name, dv) {
+  ensureAdvSensor(id, name);
+  var s = sensors[id];
+  var temp = roundTemp(dv.getInt16(6, true) / 10.0);
+  var humi = dv.getUint8(8);
+  var batt = dv.getUint8(9);
+
+  s.temp = temp; s.humi = humi; s.batt = batt;
+  s.lastUpdate = new Date();
+
+  blePerf.add('ADV', 'ATC1441 ' + (settings.names[id] || name), null, {
+    temp: temp.toFixed(1), humi: humi, batt: batt + '%'
+  });
+
+  storeReading(id, temp, humi, batt);
+  checkAlerts(id, humi);
+  checkBatteryAlerts(id, batt);
+  renderDashboard();
+}
+
+/* Parse BTHome v2 advertisement (UUID 0xFCD2)
+   TLV format: [objectId][value...] */
+function parseAdvBTHome(id, name, dv) {
+  ensureAdvSensor(id, name);
+  var s = sensors[id];
+  var offset = 0;
+  // First byte may be device info (BTHome v2)
+  var devInfo = dv.getUint8(0);
+  if ((devInfo & 0x20) !== 0) offset = 1; // v2 has device info byte
+
+  var temp = null, humi = null, batt = null, vbat = null;
+  while (offset < dv.byteLength - 1) {
+    var objId = dv.getUint8(offset); offset++;
+    switch (objId) {
+      case 0x01: // battery %
+        if (offset < dv.byteLength) { batt = dv.getUint8(offset); offset += 1; }
+        break;
+      case 0x02: // temperature sint16 / 100
+        if (offset + 1 < dv.byteLength) { temp = dv.getInt16(offset, true) / 100.0; offset += 2; }
+        break;
+      case 0x03: // humidity uint16 / 100
+        if (offset + 1 < dv.byteLength) { humi = dv.getUint16(offset, true) / 100.0; offset += 2; }
+        break;
+      case 0x0C: // voltage uint16 mV
+        if (offset + 1 < dv.byteLength) { vbat = dv.getUint16(offset, true); offset += 2; }
+        break;
+      default:
+        // Skip unknown: try to advance (BTHome objects are 1-4 bytes value)
+        offset += 1; // best guess
+        break;
+    }
+  }
+
+  if (temp !== null) s.temp = roundTemp(temp);
+  if (humi !== null) s.humi = roundHumi(humi);
+  if (batt !== null) s.batt = batt;
+  if (vbat !== null) s.vbat = vbat;
+  if (temp !== null || humi !== null) s.lastUpdate = new Date();
+
+  blePerf.add('ADV', 'BTHome ' + (settings.names[id] || name), null, {
+    temp: s.temp !== null ? s.temp.toFixed(1) : '?',
+    humi: s.humi !== null ? s.humi.toFixed(1) : '?',
+    batt: s.batt !== null ? s.batt + '%' : '?'
+  });
+
+  if (s.temp !== null && s.humi !== null) {
+    storeReading(id, s.temp, s.humi, s.batt);
+    checkAlerts(id, s.humi);
+    if (s.batt !== null) checkBatteryAlerts(id, s.batt);
+  }
+  renderDashboard();
+}
+
+/* Parse Mi-Like advertisement (UUID 0xFE95) — basic extraction */
+function parseAdvMiLike(id, name, dv) {
+  ensureAdvSensor(id, name);
+  var s = sensors[id];
+  // Mi advert format varies, look for data type tags in payload
+  // Skip frame header (variable length), look for known data types
+  var offset = 0;
+  var temp = null, humi = null, batt = null;
+
+  while (offset < dv.byteLength - 3) {
+    var dtype = dv.getUint16(offset, true); offset += 2;
+    var dlen = dv.getUint8(offset); offset++;
+    if (offset + dlen > dv.byteLength) break;
+
+    if (dtype === 0x1004 && dlen >= 2) { // temperature
+      temp = dv.getInt16(offset, true) / 10.0;
+    } else if (dtype === 0x1006 && dlen >= 2) { // humidity
+      humi = dv.getUint16(offset, true) / 10.0;
+    } else if (dtype === 0x100A && dlen >= 1) { // battery
+      batt = dv.getUint8(offset);
+    } else if (dtype === 0x100D && dlen >= 4) { // temp + humi combo
+      temp = dv.getInt16(offset, true) / 10.0;
+      humi = dv.getUint16(offset + 2, true) / 10.0;
+    }
+    offset += dlen;
+  }
+
+  if (temp !== null) s.temp = roundTemp(temp);
+  if (humi !== null) s.humi = roundHumi(humi);
+  if (batt !== null) s.batt = batt;
+  if (temp !== null || humi !== null) s.lastUpdate = new Date();
+
+  blePerf.add('ADV', 'Mi-Like ' + (settings.names[id] || name), null, {
+    temp: s.temp !== null ? s.temp.toFixed(1) : '?',
+    humi: s.humi !== null ? s.humi.toFixed(1) : '?'
+  });
+
+  if (s.temp !== null && s.humi !== null) {
+    storeReading(id, s.temp, s.humi, s.batt);
+    checkAlerts(id, s.humi);
+    if (s.batt !== null) checkBatteryAlerts(id, s.batt);
+  }
+  renderDashboard();
 }
 
 /* ── Alerts ── */
@@ -2645,7 +3041,9 @@ function timeAgo(date) {
 /* ── Auto-refresh ── */
 setInterval(renderDashboard, 5000);
 // Per-sensor polling: check every second, only poll sensors whose interval has elapsed
+// Skipped entirely in advert mode — data arrives passively via BLE advertisements
 setInterval(function() {
+  if (settings.bleMode === 'advert') return; // passive mode, no polling
   var now = Date.now();
   Object.values(sensors).forEach(function(s) {
     if (!s.customChar || !s.server) return;
@@ -2736,6 +3134,11 @@ async function init() {
   // Log build hash for debugging
   console.log('%c[FSCMS] Build: ' + (isSet ? hash : 'dev (no commit hash)'), 'color:#f59e0b;font-weight:bold');
   blePerf.add('INIT', 'FSCMS build: ' + (isSet ? hash : 'dev'), null);
+
+  // Resume advert scan if that was the saved mode
+  if (settings.bleMode === 'advert') {
+    startAdvertScan();
+  }
 }
 
 function openDebugPanel() {
