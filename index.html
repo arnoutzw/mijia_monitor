@@ -513,8 +513,16 @@ tailwind.config = {
             <label class="text-zinc-400 text-sm">History retention (days)</label>
             <input type="number" id="setRetention" min="1" max="90" value="7" onchange="saveSettings()" class="w-24 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-sm text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
           </div>
+          <div class="flex flex-wrap gap-2 mb-3">
+            <button onclick="exportFramesCSV()" class="bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-mono font-bold text-xs px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i> Export Frames CSV
+            </button>
+            <button onclick="exportHistoryCSV()" class="bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-mono font-bold text-xs px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i> Export History CSV
+            </button>
+          </div>
           <button onclick="clearHistory()" class="bg-red-500/20 hover:bg-red-500/30 text-red-400 font-mono font-bold text-xs px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear All History
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear All Data
           </button>
         </div>
 
@@ -655,7 +663,27 @@ const HW_VERSIONS = [
 const MAX_EXT_OTA_SIZE = 0x34000;
 
 const sensors = {};
-let settings = { warn: 60, crit: 80, retention: 7, names: {}, batteryProfile: 'balanced', bleMode: 'poll', tileSort: 'alpha' };
+let settings = { warn: 60, crit: 80, retention: 7, names: {}, batteryProfile: 'balanced', bleMode: 'poll', tileSort: 'alpha', deviceSettings: {} };
+// deviceSettings[sensorId] = { humiWarn, humiCrit, tempWarn, tempCrit, batteryProfile }
+// Missing keys fall back to global defaults
+
+function getDeviceSetting(sensorId, key) {
+  var ds = settings.deviceSettings[sensorId];
+  if (ds && ds[key] !== undefined && ds[key] !== null && ds[key] !== '') return ds[key];
+  // Global fallbacks
+  if (key === 'humiWarn') return settings.warn;
+  if (key === 'humiCrit') return settings.crit;
+  if (key === 'tempWarn') return null;  // no global temp warn yet — null = disabled
+  if (key === 'tempCrit') return null;
+  if (key === 'batteryProfile') return settings.batteryProfile;
+  return null;
+}
+
+function setDeviceSetting(sensorId, key, value) {
+  if (!settings.deviceSettings[sensorId]) settings.deviceSettings[sensorId] = {};
+  settings.deviceSettings[sensorId][key] = value;
+  saveSettings();
+}
 // bleMode: 'poll' (connected + notifications) or 'advert' (passive BLE scan)
 // batteryProfile: key into BATTERY_PROFILES — controls firmware config + client-side throttle
 /* ── Battery Profiles ──
@@ -953,13 +981,18 @@ function updateReconnectButton(active) {
 /* ── IndexedDB ── */
 function openDB() {
   return new Promise(function(resolve, reject) {
-    var req = indexedDB.open('FilaMonDB', 1);
+    var req = indexedDB.open('FilaMonDB', 2);
     req.onupgradeneeded = function(e) {
       var d = e.target.result;
       if (!d.objectStoreNames.contains('history')) {
         var store = d.createObjectStore('history', { autoIncrement: true });
         store.createIndex('sensor', 'sensor', { unique: false });
         store.createIndex('time', 'time', { unique: false });
+      }
+      if (!d.objectStoreNames.contains('frames')) {
+        var fs = d.createObjectStore('frames', { autoIncrement: true });
+        fs.createIndex('sensor', 'sensor', { unique: false });
+        fs.createIndex('time', 'time', { unique: false });
       }
     };
     req.onsuccess = function() { db = req.result; resolve(db); };
@@ -971,6 +1004,26 @@ function storeReading(sensorId, temp, humi, batt) {
   if (!db) return;
   var tx = db.transaction('history', 'readwrite');
   tx.objectStore('history').add({ sensor: sensorId, time: Date.now(), temp: temp, humi: humi, batt: batt });
+}
+
+// Store every received frame — raw hex + interpreted values
+function storeFrame(sensorId, source, rawBytes, temp, humi, voltage, battPct) {
+  if (!db) return;
+  try {
+    var hex = Array.from(new Uint8Array(rawBytes)).map(function(b) { return ('0' + b.toString(16)).slice(-2); }).join(' ');
+    var tx = db.transaction('frames', 'readwrite');
+    tx.objectStore('frames').add({
+      sensor: sensorId,
+      name: settings.names[sensorId] || (sensors[sensorId] ? sensors[sensorId].name : sensorId),
+      time: Date.now(),
+      source: source,       // 'custom_0x33', 'mi_temp', 'adv_custom', 'adv_atc', 'adv_enc', 'adv_mi'
+      raw: hex,
+      temp: temp,
+      humi: humi,
+      voltage: voltage,     // mV
+      batt: battPct
+    });
+  } catch (e) {}
 }
 
 function getHistory(sensorId, hours) {
@@ -996,14 +1049,24 @@ function getHistory(sensorId, hours) {
 function cleanOldData() {
   if (!db) return;
   var cutoff = Date.now() - settings.retention * 86400000;
+  // Clean history store
   var tx = db.transaction('history', 'readwrite');
-  var store = tx.objectStore('history');
-  var idx = store.index('time');
+  var idx = tx.objectStore('history').index('time');
   var req = idx.openCursor(IDBKeyRange.upperBound(cutoff));
   req.onsuccess = function(e) {
     var cursor = e.target.result;
     if (cursor) { cursor.delete(); cursor.continue(); }
   };
+  // Clean frames store
+  if (db.objectStoreNames.contains('frames')) {
+    var tx2 = db.transaction('frames', 'readwrite');
+    var idx2 = tx2.objectStore('frames').index('time');
+    var req2 = idx2.openCursor(IDBKeyRange.upperBound(cutoff));
+    req2.onsuccess = function(e) {
+      var cursor = e.target.result;
+      if (cursor) { cursor.delete(); cursor.continue(); }
+    };
+  }
 }
 
 /* ── Settings ── */
@@ -1033,12 +1096,112 @@ function saveSettings() {
 }
 
 function clearHistory() {
-  if (!confirm('Clear all historical data?')) return;
+  if (!confirm('Clear all historical data (including raw frames)?')) return;
   if (!db) return;
   var tx = db.transaction('history', 'readwrite');
   tx.objectStore('history').clear();
+  if (db.objectStoreNames.contains('frames')) {
+    var tx2 = db.transaction('frames', 'readwrite');
+    tx2.objectStore('frames').clear();
+  }
   Object.values(sensors).forEach(function(s) { if (s.chart) { s.chart.destroy(); s.chart = null; } });
   renderCharts();
+}
+
+/* ── CSV Export ── */
+function exportFramesCSV() {
+  if (!db || !db.objectStoreNames.contains('frames')) {
+    showAlert('No frame data available for export.', 'warn');
+    return;
+  }
+  var tx = db.transaction('frames', 'readonly');
+  var store = tx.objectStore('frames');
+  var rows = [];
+  var req = store.openCursor();
+  req.onsuccess = function(e) {
+    var cursor = e.target.result;
+    if (cursor) {
+      rows.push(cursor.value);
+      cursor.continue();
+    } else {
+      if (rows.length === 0) {
+        showAlert('No frames recorded yet.', 'warn');
+        return;
+      }
+      // Sort by time
+      rows.sort(function(a, b) { return a.time - b.time; });
+      // Build CSV
+      var csv = 'timestamp,iso_time,sensor_id,sensor_name,source,temp_c,humidity_pct,voltage_mv,battery_pct,raw_hex\n';
+      rows.forEach(function(r) {
+        var iso = new Date(r.time).toISOString();
+        var name = (r.name || '').replace(/,/g, ' ');
+        var raw = (r.raw || '').replace(/,/g, ' ');
+        csv += r.time + ',' + iso + ',' + r.sensor + ',' + name + ',' +
+          (r.source || '') + ',' +
+          (r.temp !== null && r.temp !== undefined ? r.temp : '') + ',' +
+          (r.humi !== null && r.humi !== undefined ? r.humi : '') + ',' +
+          (r.voltage !== null && r.voltage !== undefined ? r.voltage : '') + ',' +
+          (r.batt !== null && r.batt !== undefined ? r.batt : '') + ',' +
+          '"' + raw + '"\n';
+      });
+      // Download
+      var blob = new Blob([csv], { type: 'text/csv' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'fscms_frames_' + new Date().toISOString().slice(0, 10) + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showAlert('Exported ' + rows.length + ' frames to CSV.', 'success');
+    }
+  };
+  req.onerror = function() { showAlert('Export failed.', 'error'); };
+}
+
+function exportHistoryCSV() {
+  if (!db) {
+    showAlert('No data available for export.', 'warn');
+    return;
+  }
+  var tx = db.transaction('history', 'readonly');
+  var store = tx.objectStore('history');
+  var rows = [];
+  var req = store.openCursor();
+  req.onsuccess = function(e) {
+    var cursor = e.target.result;
+    if (cursor) {
+      rows.push(cursor.value);
+      cursor.continue();
+    } else {
+      if (rows.length === 0) {
+        showAlert('No history data recorded yet.', 'warn');
+        return;
+      }
+      rows.sort(function(a, b) { return a.time - b.time; });
+      var csv = 'timestamp,iso_time,sensor_id,sensor_name,temp_c,humidity_pct,battery_pct\n';
+      rows.forEach(function(r) {
+        var iso = new Date(r.time).toISOString();
+        var name = (settings.names[r.sensor] || r.sensor || '').replace(/,/g, ' ');
+        csv += r.time + ',' + iso + ',' + r.sensor + ',' + name + ',' +
+          (r.temp !== null && r.temp !== undefined ? r.temp : '') + ',' +
+          (r.humi !== null && r.humi !== undefined ? r.humi : '') + ',' +
+          (r.batt !== null && r.batt !== undefined ? r.batt : '') + '\n';
+      });
+      var blob = new Blob([csv], { type: 'text/csv' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'fscms_history_' + new Date().toISOString().slice(0, 10) + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showAlert('Exported ' + rows.length + ' readings to CSV.', 'success');
+    }
+  };
+  req.onerror = function() { showAlert('Export failed.', 'error'); };
 }
 
 /* ── BLE Connection ── */
@@ -1199,14 +1362,15 @@ async function connectDevice(device, silent) {
         });
       } catch (ec) {}
 
-      // Auto-apply battery profile to newly connected sensor
+      // Auto-apply battery profile to newly connected sensor (per-device or global)
       try {
-        var bp = BATTERY_PROFILES[settings.batteryProfile];
+        var bpKey = getDeviceSetting(id, 'batteryProfile');
+        var bp = BATTERY_PROFILES[bpKey];
         if (bp) {
           await new Promise(function(r) { setTimeout(r, 300); });
           var cmd = new Uint8Array(14);
           cmd[0] = 0x55;
-          cmd[1] = 0x41; // custom adv type + lp_measures
+          cmd[1] = 0x41;
           var dv = new DataView(cmd.buffer);
           dv.setInt16(2, 0, true);
           dv.setInt16(4, 0, true);
@@ -1288,8 +1452,12 @@ function onCustomNotification(sensorId, event) {
     s.batt = vbatToPercent(vbat); s.count = count;
     s.lastUpdate = new Date();
 
+    // Store every frame to frames DB
+    storeFrame(sensorId, 'custom_0x33', value.buffer, temp, humi, vbat, s.batt);
+
     var now = Date.now();
-    var profile = BATTERY_PROFILES[settings.batteryProfile] || BATTERY_PROFILES['balanced'];
+    var profileKey = getDeviceSetting(sensorId, 'batteryProfile');
+    var profile = BATTERY_PROFILES[profileKey] || BATTERY_PROFILES['balanced'];
     var rate = profile.storageRate * 1000;
     var lastStored = sensorLastPolled[sensorId] || 0;
 
@@ -1335,9 +1503,13 @@ function onMiNotification(sensorId, event) {
   s.temp = temp; s.humi = hum; s.vbat = vbat;
   s.batt = vbatToPercent(vbat); s.lastUpdate = new Date();
 
+  // Store every frame to frames DB
+  storeFrame(sensorId, 'mi_temp', value.buffer, temp, hum, vbat, s.batt);
+
   // Throttle storage & alerts to match battery profile
   var now = Date.now();
-  var profile = BATTERY_PROFILES[settings.batteryProfile] || BATTERY_PROFILES['balanced'];
+  var profileKey = getDeviceSetting(sensorId, 'batteryProfile');
+  var profile = BATTERY_PROFILES[profileKey] || BATTERY_PROFILES['balanced'];
   var rate = profile.storageRate * 1000;
   var lastStored = sensorLastPolled[sensorId] || 0;
 
@@ -1627,6 +1799,7 @@ function parseAdvPVVX(id, name, dv) {
   s.temp = temp; s.humi = humi; s.vbat = vbat; s.batt = batt;
   s.lastUpdate = new Date();
   if (dv.byteLength >= 14) s.count = dv.getUint8(13);
+  storeFrame(id, 'adv_pvvx', dv.buffer, temp, humi, vbat, batt);
 
   var rate = blePerf.getSensorRate(id);
   blePerf.add('ADV', 'PVVX ' + (settings.names[id] || name), null, {
@@ -1651,6 +1824,7 @@ function parseAdvATC1441(id, name, dv) {
 
   s.temp = temp; s.humi = humi; s.batt = batt;
   s.lastUpdate = new Date();
+  storeFrame(id, 'adv_atc1441', dv.buffer, temp, humi, null, batt);
 
   blePerf.add('ADV', 'ATC1441 ' + (settings.names[id] || name), null, {
     temp: temp.toFixed(1), humi: humi, batt: batt + '%'
@@ -1700,6 +1874,7 @@ function parseAdvBTHome(id, name, dv) {
   if (batt !== null) s.batt = batt;
   if (vbat !== null) s.vbat = vbat;
   if (temp !== null || humi !== null) s.lastUpdate = new Date();
+  storeFrame(id, 'adv_bthome', dv.buffer, s.temp, s.humi, vbat, batt);
 
   blePerf.add('ADV', 'BTHome ' + (settings.names[id] || name), null, {
     temp: s.temp !== null ? s.temp.toFixed(1) : '?',
@@ -1746,6 +1921,7 @@ function parseAdvMiLike(id, name, dv) {
   if (humi !== null) s.humi = roundHumi(humi);
   if (batt !== null) s.batt = batt;
   if (temp !== null || humi !== null) s.lastUpdate = new Date();
+  storeFrame(id, 'adv_milike', dv.buffer, s.temp, s.humi, null, batt);
 
   blePerf.add('ADV', 'Mi-Like ' + (settings.names[id] || name), null, {
     temp: s.temp !== null ? s.temp.toFixed(1) : '?',
@@ -1766,17 +1942,40 @@ function checkAlerts(sensorId, humi) {
   if (!s) return;
   var now = Date.now();
   var cooldown = 1800000;
-  if (humi >= settings.crit) {
+  var name = settings.names[sensorId] || s.name;
+  var dWarn = getDeviceSetting(sensorId, 'humiWarn');
+  var dCrit = getDeviceSetting(sensorId, 'humiCrit');
+
+  // Humidity alerts
+  if (dCrit !== null && humi >= dCrit) {
     if (!alertCooldowns[sensorId] || now - alertCooldowns[sensorId] > cooldown) {
       alertCooldowns[sensorId] = now;
-      var name = settings.names[sensorId] || s.name;
       showAlert('CRITICAL: ' + name + ' humidity at ' + humi.toFixed(1) + '%', 'critical');
-      sendNotification(name + ': Humidity Critical!', 'Humidity is ' + humi.toFixed(1) + '% — above ' + settings.crit + '% threshold.');
+      sendNotification(name + ': Humidity Critical!', 'Humidity is ' + humi.toFixed(1) + '% — above ' + dCrit + '% threshold.');
     }
-  } else if (humi >= settings.warn) {
+  } else if (dWarn !== null && humi >= dWarn) {
     if (!alertCooldowns[sensorId] || now - alertCooldowns[sensorId] > cooldown) {
       alertCooldowns[sensorId] = now;
-      showAlert('WARNING: ' + (settings.names[sensorId] || s.name) + ' humidity at ' + humi.toFixed(1) + '%', 'warn');
+      showAlert('WARNING: ' + name + ' humidity at ' + humi.toFixed(1) + '%', 'warn');
+    }
+  }
+
+  // Temperature alerts
+  if (s.temp !== null) {
+    var tWarn = getDeviceSetting(sensorId, 'tempWarn');
+    var tCrit = getDeviceSetting(sensorId, 'tempCrit');
+    var tempKey = sensorId + '_temp';
+    if (tCrit !== null && s.temp >= tCrit) {
+      if (!alertCooldowns[tempKey] || now - alertCooldowns[tempKey] > cooldown) {
+        alertCooldowns[tempKey] = now;
+        showAlert('CRITICAL: ' + name + ' temperature at ' + s.temp.toFixed(1) + '°C', 'critical');
+        sendNotification(name + ': Temperature Critical!', 'Temperature is ' + s.temp.toFixed(1) + '°C — above ' + tCrit + '°C threshold.');
+      }
+    } else if (tWarn !== null && s.temp >= tWarn) {
+      if (!alertCooldowns[tempKey] || now - alertCooldowns[tempKey] > cooldown) {
+        alertCooldowns[tempKey] = now;
+        showAlert('WARNING: ' + name + ' temperature at ' + s.temp.toFixed(1) + '°C', 'warn');
+      }
     }
   }
 }
@@ -1976,14 +2175,22 @@ function renderDashboard() {
     }
 
     var ago = s.lastUpdate ? timeAgo(s.lastUpdate) : 'never';
+    var dWarn = getDeviceSetting(id, 'humiWarn');
+    var dCrit = getDeviceSetting(id, 'humiCrit');
+    var dTempWarn = getDeviceSetting(id, 'tempWarn');
+    var dTempCrit = getDeviceSetting(id, 'tempCrit');
     var borderClass = '';
-    if (s.humi !== null && s.humi >= settings.crit) borderClass = 'border-red-500/50';
-    else if (s.humi !== null && s.humi >= settings.warn) borderClass = 'border-yellow-500/50';
+    if (s.humi !== null && dCrit !== null && s.humi >= dCrit) borderClass = 'border-red-500/50';
+    else if (s.humi !== null && dWarn !== null && s.humi >= dWarn) borderClass = 'border-yellow-500/50';
     else borderClass = 'border-zinc-700';
 
     var humiColor = 'text-amber-500';
-    if (s.humi !== null && s.humi >= settings.crit) humiColor = 'text-red-400';
-    else if (s.humi !== null && s.humi >= settings.warn) humiColor = 'text-yellow-400';
+    if (s.humi !== null && dCrit !== null && s.humi >= dCrit) humiColor = 'text-red-400';
+    else if (s.humi !== null && dWarn !== null && s.humi >= dWarn) humiColor = 'text-yellow-400';
+
+    var tempColor = 'text-amber-500';
+    if (s.temp !== null && dTempCrit !== null && s.temp >= dTempCrit) tempColor = 'text-red-400';
+    else if (s.temp !== null && dTempWarn !== null && s.temp >= dTempWarn) tempColor = 'text-yellow-400';
 
     var battPct = s.batt || 0;
     var battColor = battPct > 50 ? 'bg-green-400' : battPct > 20 ? 'bg-yellow-400' : 'bg-red-400';
@@ -1994,13 +2201,17 @@ function renderDashboard() {
           '<div class="font-mono font-bold text-zinc-100 cursor-pointer hover:text-amber-400 transition-colors" ondblclick="editFriendlyName(this,\'' + id + '\')" title="Double-click to rename">' + esc(name) + '</div>' +
           '<div class="text-xs text-zinc-500 font-mono mt-0.5">' + esc(s.device ? s.device.name || id : id) + (s.hwName ? ' &middot; ' + esc(s.hwName) : '') + '</div>' +
         '</div>' +
-        (connected
-          ? '<span class="text-xs px-2 py-0.5 bg-green-400/10 text-green-400 rounded font-mono">LIVE</span>'
-          : '<button onclick="reconnectByName(\'' + esc(s.device ? s.device.name || '' : '') + '\')" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs font-mono px-3 py-1.5 rounded-lg transition-colors">Reconnect</button>') +
+        '<div class="flex items-center gap-1.5">' +
+          '<button onclick="openDeviceSettings(\'' + id + '\')" class="text-zinc-600 hover:text-amber-400 transition-colors p-1" title="Device settings"><i data-lucide="settings" class="w-3.5 h-3.5"></i></button>' +
+          (connected
+            ? '<button onclick="disconnectDevice(\'' + id + '\')" class="text-zinc-600 hover:text-red-400 transition-colors p-1" title="Disconnect"><i data-lucide="bluetooth-off" class="w-3.5 h-3.5"></i></button>' +
+              '<span class="text-xs px-2 py-0.5 bg-green-400/10 text-green-400 rounded font-mono">LIVE</span>'
+            : '<button onclick="reconnectByName(\'' + esc(s.device ? s.device.name || '' : '') + '\')" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs font-mono px-3 py-1.5 rounded-lg transition-colors">Reconnect</button>') +
+        '</div>' +
       '</div>' +
       '<div class="grid grid-cols-2 gap-3 mb-4">' +
         '<div class="bg-zinc-800 rounded-lg p-3 text-center">' +
-          '<div class="font-mono font-bold text-2xl text-amber-500">' + (s.temp !== null ? s.temp.toFixed(1) + '°' : '—') + '</div>' +
+          '<div class="font-mono font-bold text-2xl ' + tempColor + '">' + (s.temp !== null ? s.temp.toFixed(1) + '°' : '—') + '</div>' +
           '<div class="text-xs text-zinc-500 font-mono mt-1">TEMP °C</div>' +
         '</div>' +
         '<div class="bg-zinc-800 rounded-lg p-3 text-center">' +
@@ -2157,6 +2368,126 @@ function editFriendlyName(el, id) {
   input.select();
 }
 
+/* ── Device Settings Modal ── */
+function openDeviceSettings(sensorId) {
+  var modal = document.getElementById('deviceSettingsModal');
+  modal.dataset.deviceId = sensorId;
+  var s = sensors[sensorId];
+  var name = settings.names[sensorId] || (s ? s.name : sensorId);
+  document.getElementById('dsDeviceName').textContent = name;
+
+  // Populate fields — use per-device if set, else global
+  var ds = settings.deviceSettings[sensorId] || {};
+  document.getElementById('dsHumiWarn').value = ds.humiWarn !== undefined && ds.humiWarn !== null ? ds.humiWarn : settings.warn;
+  document.getElementById('dsHumiCrit').value = ds.humiCrit !== undefined && ds.humiCrit !== null ? ds.humiCrit : settings.crit;
+  document.getElementById('dsTempWarn').value = ds.tempWarn !== undefined && ds.tempWarn !== null ? ds.tempWarn : '';
+  document.getElementById('dsTempCrit').value = ds.tempCrit !== undefined && ds.tempCrit !== null ? ds.tempCrit : '';
+
+  // Battery profile dropdown
+  var sel = document.getElementById('dsBatteryProfile');
+  var currentProfile = ds.batteryProfile || settings.batteryProfile || DEFAULT_BATTERY_PROFILE;
+  var html = '<option value="">— Use global (' + (BATTERY_PROFILES[settings.batteryProfile] || BATTERY_PROFILES['balanced']).label + ') —</option>';
+  Object.keys(BATTERY_PROFILES).forEach(function(key) {
+    var p = BATTERY_PROFILES[key];
+    html += '<option value="' + key + '"' + (ds.batteryProfile === key ? ' selected' : '') + '>' + p.label + ' — ' + p.desc + '</option>';
+  });
+  sel.innerHTML = html;
+
+  modal.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeDeviceSettings() {
+  document.getElementById('deviceSettingsModal').classList.add('hidden');
+}
+
+function saveDeviceSettings() {
+  var modal = document.getElementById('deviceSettingsModal');
+  var id = modal.dataset.deviceId;
+  if (!settings.deviceSettings[id]) settings.deviceSettings[id] = {};
+  var ds = settings.deviceSettings[id];
+
+  var hw = document.getElementById('dsHumiWarn').value;
+  var hc = document.getElementById('dsHumiCrit').value;
+  var tw = document.getElementById('dsTempWarn').value;
+  var tc = document.getElementById('dsTempCrit').value;
+  var bp = document.getElementById('dsBatteryProfile').value;
+
+  ds.humiWarn = hw !== '' ? parseInt(hw) : null;
+  ds.humiCrit = hc !== '' ? parseInt(hc) : null;
+  ds.tempWarn = tw !== '' ? parseFloat(tw) : null;
+  ds.tempCrit = tc !== '' ? parseFloat(tc) : null;
+  ds.batteryProfile = bp || null;
+
+  saveSettings();
+  closeDeviceSettings();
+  renderDashboard();
+
+  // If battery profile was set and sensor is connected, write it
+  if (bp && sensors[id] && sensors[id].customChar) {
+    writeBatteryProfileToSensor(id, bp);
+  }
+  showAlert('Settings saved for ' + (settings.names[id] || id), 'success');
+}
+
+function resetDeviceSettings() {
+  var modal = document.getElementById('deviceSettingsModal');
+  var id = modal.dataset.deviceId;
+  delete settings.deviceSettings[id];
+  saveSettings();
+  closeDeviceSettings();
+  renderDashboard();
+  showAlert('Reset to global defaults for ' + (settings.names[id] || id), 'success');
+}
+
+async function writeBatteryProfileToSensor(sensorId, profileKey) {
+  var p = BATTERY_PROFILES[profileKey];
+  var s = sensors[sensorId];
+  if (!p || !s || !s.customChar) return;
+  try {
+    await s.customChar.writeValue(new Uint8Array([0x55]));
+    await new Promise(function(r) { setTimeout(r, 300); });
+    var cmd = new Uint8Array(14);
+    cmd[0] = 0x55;
+    cmd[1] = 0x41;
+    var dv = new DataView(cmd.buffer);
+    dv.setInt16(2, 0, true);
+    dv.setInt16(4, 0, true);
+    dv.setUint16(6, Math.round(p.advInterval / 0.625), true);
+    cmd[8] = Math.min(255, p.measInterval);
+    cmd[9] = p.txPower;
+    dv.setUint16(10, 0, true);
+    cmd[12] = 0;
+    cmd[13] = 0;
+    await s.customChar.writeValue(cmd);
+    var label = settings.names[sensorId] || sensorId.substr(0, 8);
+    blePerf.add('PROFILE', 'Wrote "' + p.label + '" to ' + label, null);
+  } catch (e) {
+    blePerf.add('PROFILE', 'Write failed on ' + sensorId + ': ' + e.message, null);
+  }
+}
+
+/* ── Disconnect Single Device ── */
+function disconnectDevice(sensorId) {
+  var s = sensors[sensorId];
+  if (!s) return;
+  var name = settings.names[sensorId] || s.name || sensorId;
+  try {
+    if (s.server && s.server.connected) {
+      s.server.disconnect();
+    }
+    s.server = null;
+    s.customChar = null;
+    s.miChar = null;
+    blePerf.add('DISC', 'Disconnected ' + name, null);
+    showAlert('Disconnected ' + name, 'success');
+  } catch (e) {
+    blePerf.add('DISC', 'Disconnect error ' + name + ': ' + e.message, null);
+  }
+  updateConnectionStatus(getOverallStatus());
+  renderDashboard();
+}
+
 /* ── Tile Sort ── */
 function setTileSort(val) {
   settings.tileSort = val;
@@ -2198,7 +2529,12 @@ async function writeBatteryProfileToSensors(key) {
   if (!p) return;
   var status = document.getElementById('batteryProfileStatus');
   var written = 0;
-  var sensorList = Object.values(sensors).filter(function(s) { return s.customChar; });
+  // Only write to sensors that don't have a per-device battery profile override
+  var sensorList = Object.values(sensors).filter(function(s) {
+    if (!s.customChar) return false;
+    var ds = settings.deviceSettings[s.id];
+    return !ds || !ds.batteryProfile; // skip if device has its own profile
+  });
 
   if (sensorList.length === 0) {
     if (status) {
@@ -3483,6 +3819,56 @@ init();
     <div class="flex gap-3">
       <button onclick="closeForgetModal()" class="flex-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-mono font-bold px-4 py-2.5 rounded-lg transition-colors text-sm">Cancel</button>
       <button onclick="confirmForgetDevice()" class="flex-1 bg-red-500/20 hover:bg-red-500/40 text-red-400 font-mono font-bold px-4 py-2.5 rounded-lg transition-colors text-sm border border-red-500/30 hover:border-red-500/50">Forget</button>
+    </div>
+  </div>
+</div>
+
+<!-- Device Settings Modal -->
+<div id="deviceSettingsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" data-device-id="">
+  <div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeDeviceSettings()"></div>
+  <div class="relative bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-full max-w-sm shadow-2xl">
+    <div class="flex justify-between items-center mb-5">
+      <div>
+        <h2 class="font-mono font-bold text-zinc-100 text-lg">Device Settings</h2>
+        <div class="text-xs text-zinc-500 font-mono mt-0.5" id="dsDeviceName"></div>
+      </div>
+      <button onclick="closeDeviceSettings()" class="text-zinc-500 hover:text-zinc-300 transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+    <div class="space-y-4">
+      <div class="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700">
+        <div class="font-mono text-amber-500 text-xs font-bold mb-3 flex items-center gap-2"><i data-lucide="droplets" class="w-3.5 h-3.5"></i> Humidity Thresholds</div>
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="text-zinc-400 text-xs">Warning (%)</label>
+            <input type="number" id="dsHumiWarn" min="0" max="100" class="w-20 bg-zinc-900 border border-zinc-700 rounded-lg px-2 py-1.5 font-mono text-xs text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
+          </div>
+          <div class="flex items-center justify-between">
+            <label class="text-zinc-400 text-xs">Critical (%)</label>
+            <input type="number" id="dsHumiCrit" min="0" max="100" class="w-20 bg-zinc-900 border border-zinc-700 rounded-lg px-2 py-1.5 font-mono text-xs text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
+          </div>
+        </div>
+      </div>
+      <div class="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700">
+        <div class="font-mono text-amber-500 text-xs font-bold mb-3 flex items-center gap-2"><i data-lucide="thermometer" class="w-3.5 h-3.5"></i> Temperature Thresholds</div>
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="text-zinc-400 text-xs">Warning (°C)</label>
+            <input type="number" id="dsTempWarn" min="-40" max="125" class="w-20 bg-zinc-900 border border-zinc-700 rounded-lg px-2 py-1.5 font-mono text-xs text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
+          </div>
+          <div class="flex items-center justify-between">
+            <label class="text-zinc-400 text-xs">Critical (°C)</label>
+            <input type="number" id="dsTempCrit" min="-40" max="125" class="w-20 bg-zinc-900 border border-zinc-700 rounded-lg px-2 py-1.5 font-mono text-xs text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
+          </div>
+        </div>
+      </div>
+      <div class="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700">
+        <div class="font-mono text-amber-500 text-xs font-bold mb-3 flex items-center gap-2"><i data-lucide="battery-charging" class="w-3.5 h-3.5"></i> Battery Profile</div>
+        <select id="dsBatteryProfile" class="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2 py-1.5 font-mono text-xs text-zinc-300 focus:border-amber-500 focus:outline-none cursor-pointer"></select>
+      </div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="resetDeviceSettings()" class="flex-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-mono text-xs px-3 py-2 rounded-lg transition-colors">Reset to Global</button>
+      <button onclick="saveDeviceSettings()" class="flex-1 bg-amber-500 hover:bg-amber-400 text-zinc-900 font-mono font-bold text-xs px-3 py-2 rounded-lg transition-colors">Save</button>
     </div>
   </div>
 </div>
