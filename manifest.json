@@ -1,6 +1,6 @@
 {
-  "name": "Filament Storage Monitor",
-  "short_name": "FilaMon",
+  "name": "Fillament Storage Climate Monitoring System",
+  "short_name": "FSCMS",
   "description": "Monitor temperature and humidity in filament storage using Mijia sensors",
   "start_url": "/index.html",
   "display": "standalone",

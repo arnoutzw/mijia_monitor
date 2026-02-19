@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#09090b">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>FilaMon — Filament Storage Monitor</title>
+<title>FSCMS — Fillament Storage Climate Monitoring System</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="icons/icon-192.svg">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -46,7 +46,7 @@ tailwind.config = {
         <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
         <div class="w-3 h-3 rounded-full bg-green-500"></div>
       </div>
-      <h1 class="font-mono font-bold text-lg text-amber-500">FilaMon<span class="text-zinc-500 font-normal text-xs ml-2">v2.0</span></h1>
+      <h1 class="font-mono font-bold text-lg text-amber-500">FSCMS<span class="text-zinc-500 font-normal text-xs ml-2">v2.0</span></h1>
     </div>
     <div class="flex gap-2 items-center">
       <div id="statusDot" class="w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-red-500/30" title="No devices connected"></div>
@@ -76,11 +76,14 @@ tailwind.config = {
       <button class="tab-btn flex-1 text-center py-2.5 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800" data-tab="charts">
         <i data-lucide="bar-chart-3" class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"></i>Charts
       </button>
-      <button class="tab-btn flex-1 text-center py-2.5 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800" data-tab="firmware">
-        <i data-lucide="cpu" class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"></i>Firmware
+      <button class="tab-btn flex-1 text-center py-2.5 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800" data-tab="flasher">
+        <i data-lucide="zap" class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"></i>Flasher
       </button>
       <button class="tab-btn flex-1 text-center py-2.5 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800" data-tab="settings">
         <i data-lucide="settings" class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"></i>Settings
+      </button>
+      <button class="tab-btn flex-1 text-center py-2.5 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800" data-tab="about">
+        <i data-lucide="info" class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"></i>About
       </button>
     </div>
 
@@ -109,50 +112,346 @@ tailwind.config = {
       </div>
     </div>
 
-    <!-- Firmware Tab -->
-    <div class="tab-content hidden" id="tab-firmware">
-      <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5 max-w-2xl mx-auto">
-        <div class="flex items-center gap-3 mb-5">
-          <div class="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
-            <i data-lucide="zap" class="w-5 h-5 text-amber-500"></i>
-          </div>
-          <div>
-            <h2 class="font-mono font-bold text-zinc-100 text-lg">Firmware Update</h2>
-            <p class="text-xs text-zinc-500 font-mono">Telink OTA over BLE</p>
-          </div>
+    <!-- Flasher Tab -->
+    <div class="tab-content hidden" id="tab-flasher">
+
+      <!-- Mode Toggle -->
+      <div class="flex justify-center mb-6">
+        <div class="inline-flex bg-zinc-900 border border-zinc-700 rounded-lg p-1 gap-1">
+          <button id="flasherModeSimple" onclick="setFlasherMode('simple')" class="px-5 py-2 rounded-lg font-mono text-xs font-bold transition-colors bg-amber-500 text-zinc-900">
+            <i data-lucide="zap" class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"></i>Simple
+          </button>
+          <button id="flasherModeAdvanced" onclick="setFlasherMode('advanced')" class="px-5 py-2 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800">
+            <i data-lucide="settings" class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"></i>Advanced
+          </button>
         </div>
-
-        <!-- Device select -->
-        <div class="mb-4">
-          <label class="text-xs text-zinc-500 font-mono block mb-1.5">Target Device</label>
-          <select id="otaDeviceSelect" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 font-mono text-sm text-zinc-100 focus:border-amber-500 focus:outline-none">
-            <option value="">— connect a sensor first —</option>
-          </select>
-        </div>
-
-        <!-- File drop -->
-        <div id="fileDrop" class="border-2 border-dashed border-zinc-700 rounded-lg p-8 text-center mb-4 cursor-pointer hover:border-amber-500/50 transition-colors">
-          <input type="file" id="fwFile" accept=".bin" class="hidden">
-          <i data-lucide="upload" class="w-8 h-8 text-zinc-500 mx-auto mb-3"></i>
-          <p class="text-zinc-400 text-sm">Drop firmware <span class="font-mono text-amber-500">.bin</span> file here or click to browse</p>
-        </div>
-
-        <!-- Firmware info -->
-        <div id="fwInfo" class="hidden bg-zinc-800 rounded-lg p-4 mb-4 font-mono text-xs space-y-1.5"></div>
-
-        <!-- Progress bar -->
-        <div id="otaProgress" class="hidden w-full h-3 bg-zinc-800 rounded-full overflow-hidden mb-4">
-          <div id="otaProgressFill" class="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-100" style="width:0%"></div>
-        </div>
-
-        <!-- Status -->
-        <div id="otaStatus" class="text-center text-sm text-zinc-500 font-mono mb-4"></div>
-
-        <!-- Flash button -->
-        <button id="btnFlash" disabled onclick="startOTA()" class="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-900 font-mono font-bold px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
-          <i data-lucide="zap" class="w-4 h-4"></i> Flash Firmware
-        </button>
       </div>
+
+      <!-- ═══ SIMPLE MODE ═══ -->
+      <div id="flasherSimple" class="max-w-2xl mx-auto">
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <div class="flex items-center gap-3 mb-5">
+            <div class="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+              <i data-lucide="zap" class="w-5 h-5 text-amber-500"></i>
+            </div>
+            <div>
+              <h2 class="font-mono font-bold text-zinc-100 text-lg">Firmware Update</h2>
+              <p class="text-xs text-zinc-500 font-mono">Telink OTA over BLE</p>
+            </div>
+          </div>
+
+          <div class="mb-4">
+            <label class="text-xs text-zinc-500 font-mono block mb-1.5">Target Device</label>
+            <select id="otaDeviceSelect" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 font-mono text-sm text-zinc-100 focus:border-amber-500 focus:outline-none">
+              <option value="">— connect a sensor first —</option>
+            </select>
+          </div>
+
+          <div id="fileDrop" class="border-2 border-dashed border-zinc-700 rounded-lg p-8 text-center mb-4 cursor-pointer hover:border-amber-500/50 transition-colors">
+            <input type="file" id="fwFile" accept=".bin" class="hidden">
+            <i data-lucide="upload" class="w-8 h-8 text-zinc-500 mx-auto mb-3"></i>
+            <p class="text-zinc-400 text-sm">Drop firmware <span class="font-mono text-amber-500">.bin</span> file here or click to browse</p>
+          </div>
+
+          <div id="fwInfo" class="hidden bg-zinc-800 rounded-lg p-4 mb-4 font-mono text-xs space-y-1.5"></div>
+
+          <div id="otaProgress" class="hidden w-full h-3 bg-zinc-800 rounded-full overflow-hidden mb-4">
+            <div id="otaProgressFill" class="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-100" style="width:0%"></div>
+          </div>
+
+          <div id="otaStatus" class="text-center text-sm text-zinc-500 font-mono mb-4"></div>
+
+          <button id="btnFlash" disabled onclick="startOTA()" class="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-900 font-mono font-bold px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
+            <i data-lucide="zap" class="w-4 h-4"></i> Flash Firmware
+          </button>
+        </div>
+      </div>
+
+      <!-- ═══ ADVANCED MODE ═══ -->
+      <div id="flasherAdvanced" class="hidden max-w-4xl mx-auto space-y-4">
+
+        <!-- Flasher Connection -->
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-mono font-bold text-amber-500 text-sm flex items-center gap-2">
+              <i data-lucide="bluetooth" class="w-4 h-4"></i> Device Connection
+            </h3>
+            <span id="flConnStatus" class="text-xs font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-500">Disconnected</span>
+          </div>
+          <div class="flex gap-3 mb-4">
+            <div class="flex-1">
+              <label class="text-xs text-zinc-500 font-mono block mb-1.5">Name Prefix Filter</label>
+              <input type="text" id="flNamePrefix" value="ATC_" placeholder="ATC_" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-sm text-zinc-100 focus:border-amber-500 focus:outline-none">
+            </div>
+            <div class="flex items-end gap-2">
+              <button id="btnFlConnect" onclick="flasherConnect()" class="bg-amber-500 hover:bg-amber-400 text-zinc-900 font-mono font-bold px-4 py-2 rounded-lg transition-colors text-sm flex items-center gap-2">
+                <i data-lucide="bluetooth" class="w-4 h-4"></i> Connect
+              </button>
+              <button id="btnFlDisconnect" onclick="flasherDisconnect()" class="hidden bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-mono font-bold px-4 py-2 rounded-lg transition-colors text-sm flex items-center gap-2">
+                <i data-lucide="bluetooth-off" class="w-4 h-4"></i> Disconnect
+              </button>
+            </div>
+          </div>
+
+          <!-- Device Info -->
+          <div id="flDeviceInfo" class="hidden bg-zinc-800/50 rounded-lg p-4 font-mono text-xs space-y-1.5 border border-zinc-700/50">
+            <div class="text-amber-500 font-bold mb-2">DEVICE INFO</div>
+            <div id="flDevInfoContent"></div>
+          </div>
+        </div>
+
+        <!-- Custom Config -->
+        <div id="flConfigSection" class="hidden bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-mono font-bold text-amber-500 text-sm flex items-center gap-2">
+              <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Sensor Configuration
+            </h3>
+            <div class="flex gap-2">
+              <button onclick="flasherReadConfig()" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors">Read Config</button>
+              <button onclick="flasherWriteConfig()" class="text-xs text-amber-500 hover:text-amber-400 font-mono px-2 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 transition-colors border border-amber-500/20">Write Config</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Advertising -->
+            <div class="space-y-3">
+              <div class="text-xs text-zinc-500 font-mono font-bold">ADVERTISING</div>
+              <div>
+                <label class="text-xs text-zinc-500 font-mono block mb-1">Advertising Type</label>
+                <select id="flAdvType" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+                  <option value="0">ATC1441</option>
+                  <option value="1">Custom (PVVX)</option>
+                  <option value="2">Mi-Like (Xiaomi)</option>
+                  <option value="3">BTHome v1</option>
+                  <option value="4">BTHome v2</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-xs text-zinc-500 font-mono block mb-1">Advertising Interval (ms)</label>
+                <input type="number" id="flAdvInterval" value="2500" min="250" max="10000" step="50" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="text-xs text-zinc-500 font-mono block mb-1">Measure Interval (s)</label>
+                <input type="number" id="flMeasInterval" value="4" min="2" max="255" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+              </div>
+            </div>
+
+            <!-- RF & Offsets -->
+            <div class="space-y-3">
+              <div class="text-xs text-zinc-500 font-mono font-bold">RF & CALIBRATION</div>
+              <div>
+                <label class="text-xs text-zinc-500 font-mono block mb-1">RF TX Power</label>
+                <select id="flTxPower" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+                  <option value="0">-25.3 dBm</option>
+                  <option value="1">-17.1 dBm</option>
+                  <option value="2">-12.2 dBm</option>
+                  <option value="3">-8.7 dBm</option>
+                  <option value="4">-5.8 dBm</option>
+                  <option value="5">-3.5 dBm</option>
+                  <option value="6">-1.6 dBm</option>
+                  <option value="7" selected>0 dBm (default)</option>
+                  <option value="8">1.0 dBm</option>
+                  <option value="9">1.6 dBm</option>
+                  <option value="10">3.0 dBm</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-xs text-zinc-500 font-mono block mb-1">Temperature Offset (°C × 100)</label>
+                <input type="number" id="flTempOffset" value="0" min="-32768" max="32767" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="text-xs text-zinc-500 font-mono block mb-1">Humidity Offset (% × 100)</label>
+                <input type="number" id="flHumiOffset" value="0" min="-32768" max="32767" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+              </div>
+            </div>
+          </div>
+
+          <!-- Flags row -->
+          <div class="mt-4 pt-4 border-t border-zinc-800">
+            <div class="text-xs text-zinc-500 font-mono font-bold mb-3">OPTIONS</div>
+            <div class="flex flex-wrap gap-4">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="flFlagScreen" class="accent-amber-500">
+                <span class="text-xs text-zinc-400 font-mono">Show on LCD</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="flFlagBt5" class="accent-amber-500">
+                <span class="text-xs text-zinc-400 font-mono">BT5.0 Long Range</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="flFlagLpMeasure" class="accent-amber-500">
+                <span class="text-xs text-zinc-400 font-mono">Low Power Measure</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="flFlagTempF" class="accent-amber-500">
+                <span class="text-xs text-zinc-400 font-mono">Temp in °F on LCD</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Comfort Parameters -->
+        <div id="flComfortSection" class="hidden bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm flex items-center gap-2 mb-4">
+            <i data-lucide="smile" class="w-4 h-4"></i> Comfort Parameters
+          </h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <label class="text-xs text-zinc-500 font-mono block mb-1">Temp Min (°C×100)</label>
+              <input type="number" id="flComfortTempMin" value="2000" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+            </div>
+            <div>
+              <label class="text-xs text-zinc-500 font-mono block mb-1">Temp Max (°C×100)</label>
+              <input type="number" id="flComfortTempMax" value="2500" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+            </div>
+            <div>
+              <label class="text-xs text-zinc-500 font-mono block mb-1">Humi Min (%×100)</label>
+              <input type="number" id="flComfortHumiMin" value="4000" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+            </div>
+            <div>
+              <label class="text-xs text-zinc-500 font-mono block mb-1">Humi Max (%×100)</label>
+              <input type="number" id="flComfortHumiMax" value="6000" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+            </div>
+          </div>
+        </div>
+
+        <!-- Trigger Configuration -->
+        <div id="flTriggerSection" class="hidden bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm flex items-center gap-2 mb-4">
+            <i data-lucide="bell-ring" class="w-4 h-4"></i> Trigger Configuration
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="space-y-3">
+              <div class="text-xs text-zinc-500 font-mono font-bold">TEMPERATURE TRIGGER</div>
+              <div>
+                <label class="text-xs text-zinc-500 font-mono block mb-1">Temp Threshold (°C×100)</label>
+                <input type="number" id="flTrigTempThreshold" value="0" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="text-xs text-zinc-500 font-mono block mb-1">Temp Hysteresis</label>
+                <input type="number" id="flTrigTempHyst" value="0" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+              </div>
+            </div>
+            <div class="space-y-3">
+              <div class="text-xs text-zinc-500 font-mono font-bold">HUMIDITY TRIGGER</div>
+              <div>
+                <label class="text-xs text-zinc-500 font-mono block mb-1">Humi Threshold (%×100)</label>
+                <input type="number" id="flTrigHumiThreshold" value="0" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="text-xs text-zinc-500 font-mono block mb-1">Humi Hysteresis</label>
+                <input type="number" id="flTrigHumiHyst" value="0" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+              </div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <label class="text-xs text-zinc-500 font-mono block mb-1">Reed Switch Mode</label>
+            <select id="flReedSwitch" class="w-full md:w-1/2 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+              <option value="0">None</option>
+              <option value="1">Switch (GPIO)</option>
+              <option value="2">Counter</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Mi Authorization -->
+        <div id="flMiAuthSection" class="hidden bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm flex items-center gap-2 mb-4">
+            <i data-lucide="shield" class="w-4 h-4"></i> Mi Authorization
+          </h3>
+          <p class="text-xs text-zinc-500 font-mono mb-4">Manage Xiaomi Mi token and bind key. Required for activation of sensors with original firmware.</p>
+          <div class="space-y-3">
+            <div>
+              <label class="text-xs text-zinc-500 font-mono block mb-1">Mi Bind Key (hex)</label>
+              <input type="text" id="flMiBindKey" placeholder="e.g. AABBCCDDEEFF11223344556677889900" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+            </div>
+            <div>
+              <label class="text-xs text-zinc-500 font-mono block mb-1">Mi Token (hex)</label>
+              <input type="text" id="flMiToken" placeholder="Token from Mi activation" readonly class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-400 focus:outline-none">
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <button onclick="flasherMiGetBindKey()" class="text-xs text-zinc-300 font-mono px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 transition-colors">Get Bind Key</button>
+              <button onclick="flasherMiSetBindKey()" class="text-xs text-zinc-300 font-mono px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 transition-colors">Set Bind Key</button>
+              <button onclick="flasherMiActivate()" class="text-xs text-amber-500 font-mono px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 transition-colors border border-amber-500/20">Activate</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Device Name / MAC / PinCode -->
+        <div id="flDevMgmtSection" class="hidden bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm flex items-center gap-2 mb-4">
+            <i data-lucide="tag" class="w-4 h-4"></i> Device Management
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label class="text-xs text-zinc-500 font-mono block mb-1">Device Name</label>
+              <div class="flex gap-2">
+                <input type="text" id="flDevName" placeholder="ATC_AABBCC" class="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+                <button onclick="flasherSetDevName()" class="text-xs text-zinc-300 font-mono px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600 transition-colors">Set</button>
+              </div>
+            </div>
+            <div>
+              <label class="text-xs text-zinc-500 font-mono block mb-1">MAC Address</label>
+              <div class="flex gap-2">
+                <input type="text" id="flDevMAC" placeholder="AA:BB:CC:DD:EE:FF" class="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+                <button onclick="flasherSetMAC()" class="text-xs text-zinc-300 font-mono px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600 transition-colors">Set</button>
+              </div>
+            </div>
+            <div>
+              <label class="text-xs text-zinc-500 font-mono block mb-1">Pin Code</label>
+              <div class="flex gap-2">
+                <input type="number" id="flPinCode" placeholder="0" min="0" max="999999" class="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+                <button onclick="flasherSetPinCode()" class="text-xs text-zinc-300 font-mono px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600 transition-colors">Set</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced OTA -->
+        <div id="flOtaSection" class="hidden bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-mono font-bold text-amber-500 text-sm flex items-center gap-2">
+              <i data-lucide="cpu" class="w-4 h-4"></i> OTA Firmware Update
+            </h3>
+            <button onclick="flasherLoadRemoteFw()" class="text-xs text-amber-500 hover:text-amber-400 font-mono px-2 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 transition-colors border border-amber-500/20 flex items-center gap-1">
+              <i data-lucide="cloud-download" class="w-3 h-3"></i> Load from GitHub
+            </button>
+          </div>
+          <div class="mb-3">
+            <label class="text-xs text-zinc-500 font-mono block mb-1.5">Firmware Source</label>
+            <select id="flFwSource" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:outline-none">
+              <option value="">— select or load firmware —</option>
+            </select>
+          </div>
+          <div id="flAdvFileDrop" class="border-2 border-dashed border-zinc-700 rounded-lg p-6 text-center mb-3 cursor-pointer hover:border-amber-500/50 transition-colors">
+            <input type="file" id="flAdvFwFile" accept=".bin" class="hidden">
+            <i data-lucide="upload" class="w-6 h-6 text-zinc-500 mx-auto mb-2"></i>
+            <p class="text-zinc-400 text-xs">Or drop <span class="font-mono text-amber-500">.bin</span> file here</p>
+          </div>
+          <div id="flAdvFwInfo" class="hidden bg-zinc-800 rounded-lg p-3 mb-3 font-mono text-xs space-y-1"></div>
+          <div id="flAdvOtaProgress" class="hidden w-full h-3 bg-zinc-800 rounded-full overflow-hidden mb-3">
+            <div id="flAdvOtaProgressFill" class="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-100" style="width:0%"></div>
+          </div>
+          <div id="flAdvOtaStatus" class="text-center text-xs text-zinc-500 font-mono mb-3"></div>
+          <button id="btnFlAdvFlash" disabled onclick="flasherStartOTA()" class="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-900 font-mono font-bold px-4 py-2 rounded-lg transition-colors text-sm flex items-center justify-center gap-2">
+            <i data-lucide="zap" class="w-4 h-4"></i> Flash Firmware
+          </button>
+        </div>
+
+        <!-- Flasher Log -->
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-mono font-bold text-amber-500 text-sm flex items-center gap-2">
+              <i data-lucide="terminal" class="w-4 h-4"></i> Flasher Log
+            </h3>
+            <button onclick="clearFlasherLog()" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors">Clear</button>
+          </div>
+          <div id="flasherLog" class="bg-zinc-950 rounded-lg p-3 h-40 overflow-y-auto font-mono text-xs text-zinc-400 space-y-0.5 border border-zinc-800">
+            <div class="text-zinc-600">Flasher ready. Connect a device to begin.</div>
+          </div>
+        </div>
+
+      </div><!-- /flasherAdvanced -->
     </div>
 
     <!-- Settings Tab -->
@@ -200,22 +499,115 @@ tailwind.config = {
           </button>
         </div>
 
-        <!-- About -->
-        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
-          <h3 class="font-mono font-bold text-amber-500 text-sm mb-3 flex items-center gap-2">
-            <i data-lucide="info" class="w-4 h-4"></i> About
-          </h3>
-          <p class="text-xs text-zinc-500 font-mono leading-relaxed">FilaMon v2.0 — Web Bluetooth Edition<br>
-          Direct BLE connection to Mijia LYWSD03MMC sensors running ATC custom firmware.<br>
-          OTA firmware flashing via Telink BLE protocol.</p>
-        </div>
       </div>
     </div>
+
+    <!-- About Tab -->
+    <div class="tab-content hidden" id="tab-about">
+      <div class="max-w-2xl mx-auto space-y-4">
+
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-6 text-center">
+          <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/20 mb-4">
+            <i data-lucide="thermometer" class="w-8 h-8 text-amber-500"></i>
+          </div>
+          <h2 class="font-mono font-bold text-2xl text-amber-500 mb-1">FSCMS</h2>
+          <p class="text-zinc-400 text-sm font-mono mb-1">Fillament Storage Climate Monitoring System</p>
+          <p class="text-zinc-500 text-xs font-mono" id="aboutVersion">v2.0 — Web Bluetooth Edition</p>
+        </div>
+
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm mb-3 flex items-center gap-2">
+            <i data-lucide="info" class="w-4 h-4"></i> Overview
+          </h3>
+          <p class="text-xs text-zinc-400 font-mono leading-relaxed">
+            FSCMS is a Progressive Web App for real-time monitoring of temperature and humidity inside 3D printer filament storage containers. It connects directly to Xiaomi Mijia LYWSD03MMC sensors via Web Bluetooth, supporting both original Xiaomi firmware and custom ATC firmware by PVVX.
+          </p>
+        </div>
+
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm mb-3 flex items-center gap-2">
+            <i data-lucide="cpu" class="w-4 h-4"></i> Features
+          </h3>
+          <div class="text-xs text-zinc-400 font-mono leading-relaxed space-y-2">
+            <p><span class="text-amber-500">Live Dashboard</span> — Real-time temp, humidity, battery readings with color-coded status cards and per-sensor polling rates.</p>
+            <p><span class="text-amber-500">Historical Charts</span> — 24-hour rolling charts with 0.2°C temperature resolution stored in IndexedDB.</p>
+            <p><span class="text-amber-500">Smart Alerts</span> — Humidity threshold warnings (configurable), battery level monitoring (low at 20%, critical at 10%), push notifications, and full alert history.</p>
+            <p><span class="text-amber-500">Flasher</span> — Simple one-click OTA firmware update and Advanced mode with full Telink Mi Flasher: device config, advertising type, Mi authorization, trigger/comfort settings, remote firmware loading from GitHub.</p>
+            <p><span class="text-amber-500">Multi-sensor</span> — Auto-pair ATC devices, batch reconnect, persistent device memory, friendly name editing.</p>
+            <p><span class="text-amber-500">BLE Debug</span> — Full performance logging with latency tracking, notification rates, connection diagnostics, and exportable logs.</p>
+          </div>
+        </div>
+
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm mb-3 flex items-center gap-2">
+            <i data-lucide="wrench" class="w-4 h-4"></i> Tech Stack
+          </h3>
+          <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+            <div class="bg-zinc-800/50 rounded-lg px-3 py-2">
+              <span class="text-zinc-500">BLE</span>
+              <span class="text-zinc-300 ml-2">Web Bluetooth API</span>
+            </div>
+            <div class="bg-zinc-800/50 rounded-lg px-3 py-2">
+              <span class="text-zinc-500">Storage</span>
+              <span class="text-zinc-300 ml-2">IndexedDB + localStorage</span>
+            </div>
+            <div class="bg-zinc-800/50 rounded-lg px-3 py-2">
+              <span class="text-zinc-500">Charts</span>
+              <span class="text-zinc-300 ml-2">Chart.js</span>
+            </div>
+            <div class="bg-zinc-800/50 rounded-lg px-3 py-2">
+              <span class="text-zinc-500">UI</span>
+              <span class="text-zinc-300 ml-2">Tailwind CSS</span>
+            </div>
+            <div class="bg-zinc-800/50 rounded-lg px-3 py-2">
+              <span class="text-zinc-500">Icons</span>
+              <span class="text-zinc-300 ml-2">Lucide</span>
+            </div>
+            <div class="bg-zinc-800/50 rounded-lg px-3 py-2">
+              <span class="text-zinc-500">PWA</span>
+              <span class="text-zinc-300 ml-2">Service Worker + Manifest</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm mb-3 flex items-center gap-2">
+            <i data-lucide="radio" class="w-4 h-4"></i> Compatible Devices
+          </h3>
+          <div class="text-xs text-zinc-400 font-mono leading-relaxed space-y-1.5">
+            <p><span class="text-zinc-300">Xiaomi Mijia LYWSD03MMC</span> — Primary target (all board revisions B1.4 through B2.0)</p>
+            <p><span class="text-zinc-300">Xiaomi MHO-C401</span> — E-ink display variant</p>
+            <p><span class="text-zinc-300">Qingping CGG1-M</span> — Round display model</p>
+            <p><span class="text-zinc-300">Xiaomi CGDK2</span> — Cleargrass clock</p>
+            <p><span class="text-zinc-300">Xiaomi MHO-C122</span> — Small LCD model</p>
+            <p><span class="text-zinc-300">Xiaomi MJWSD05MMC</span> — Newer LCD model</p>
+            <p class="text-zinc-600 mt-2">All devices require ATC custom firmware or original Xiaomi firmware with BLE advertising enabled.</p>
+          </div>
+        </div>
+
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm mb-3 flex items-center gap-2">
+            <i data-lucide="github" class="w-4 h-4"></i> Credits & Links
+          </h3>
+          <div class="text-xs text-zinc-400 font-mono leading-relaxed space-y-1.5">
+            <p><span class="text-zinc-300">ATC Custom Firmware</span> — <a href="https://github.com/pvvx/ATC_MiThermometer" target="_blank" class="text-amber-500 hover:text-amber-400 underline underline-offset-2">pvvx/ATC_MiThermometer</a></p>
+            <p><span class="text-zinc-300">Telink Mi Flasher</span> — <a href="https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html" target="_blank" class="text-amber-500 hover:text-amber-400 underline underline-offset-2">Online Flasher Tool</a></p>
+            <p><span class="text-zinc-300">FSCMS Source</span> — <a href="https://arnoutzw.github.io/mijia_monitor/" target="_blank" class="text-amber-500 hover:text-amber-400 underline underline-offset-2">arnoutzw.github.io/mijia_monitor</a></p>
+          </div>
+        </div>
+
+        <div class="text-center py-4">
+          <p class="text-xs text-zinc-600 font-mono">FSCMS <span id="aboutBuildHash">v2.0</span> — Made with Web Bluetooth</p>
+        </div>
+
+      </div>
+    </div>
+
   </main>
 
 <script>
 /* ═══════════════════════════════════════════════
-   FilaMon v2.0 — Web Bluetooth Direct Connection
+   FSCMS v2.0 — Fillament Storage Climate Monitoring System
    ═══════════════════════════════════════════════ */
 
 const UUID_CUSTOM_SVC   = '00001f10-0000-1000-8000-00805f9b34fb';
@@ -224,6 +616,9 @@ const UUID_OTA_SVC      = '00010203-0405-0607-0809-0a0b0c0d1912';
 const UUID_OTA_CHAR     = '00010203-0405-0607-0809-0a0b0c0d2b12';
 const UUID_MI_SVC       = 'ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6';
 const UUID_MI_TEMP_CHAR = 'ebe0ccc1-7a0a-4b0c-8a1a-6ff2997da3a6';
+
+/* __BUILD_HASH__ is replaced by pre-commit hook with the short git commit hash */
+const BUILD_HASH = '__BUILD_HASH__';
 
 const BLE_OPTIONAL_SVCS = [
   UUID_CUSTOM_SVC, UUID_OTA_SVC, UUID_MI_SVC,
@@ -254,6 +649,8 @@ var DEFAULT_POLL_RATE = 10; // seconds
 var sensorLastPolled = {}; // { sensorId: timestamp ms }
 let knownDevices = {};  // { deviceId: { deviceName, lastSeen } } — persisted in localStorage
 let alertCooldowns = {};
+var battLowCount = {};     // { sensorId: consecutiveFramesBelowThreshold }
+var battAlertCooldowns = {}; // { sensorId: timestamp } — separate cooldown for battery alerts
 var alertHistory = [];  // { msg, type, time }
 var alertUnread = 0;
 let firmwareData = null;
@@ -837,6 +1234,7 @@ function onCustomNotification(sensorId, event) {
     });
     storeReading(sensorId, temp, humi, s.batt);
     checkAlerts(sensorId, humi);
+    checkBatteryAlerts(sensorId, s.batt);
     renderDashboard();
   } else if (blkid === 0x55 && len >= 3) {
     var s2 = sensors[sensorId];
@@ -871,6 +1269,7 @@ function onMiNotification(sensorId, event) {
   });
   storeReading(sensorId, temp, hum, s.batt);
   checkAlerts(sensorId, hum);
+  checkBatteryAlerts(sensorId, s.batt);
   renderDashboard();
 }
 
@@ -900,6 +1299,44 @@ function checkAlerts(sensorId, humi) {
       alertCooldowns[sensorId] = now;
       showAlert('WARNING: ' + (settings.names[sensorId] || s.name) + ' humidity at ' + humi.toFixed(1) + '%', 'warn');
     }
+  }
+}
+
+/* ── Battery Level Warnings ── */
+function checkBatteryAlerts(sensorId, battPct) {
+  var s = sensors[sensorId];
+  if (!s || battPct === null || battPct === undefined) return;
+  var name = settings.names[sensorId] || s.name;
+  var now = Date.now();
+  var cooldown = 3600000; // 1 hour cooldown between repeated battery alerts
+
+  // Critical: at or below 10% — immediate alert
+  if (battPct <= 10) {
+    // Still count for the low-battery counter
+    battLowCount[sensorId] = (battLowCount[sensorId] || 0) + 1;
+    if (!battAlertCooldowns[sensorId] || now - battAlertCooldowns[sensorId] > cooldown) {
+      battAlertCooldowns[sensorId] = now;
+      showAlert('CRITICAL BATTERY: ' + name + ' at ' + battPct + '% — Replace battery as soon as possible!', 'critical');
+      sendNotification(name + ': Battery Critical!', 'Battery at ' + battPct + '%. Replace battery as soon as possible!');
+      blePerf.add('BATT', 'CRITICAL: ' + name + ' at ' + battPct + '%', null);
+    }
+    return;
+  }
+
+  // Low: below 20% — alert after 5 consecutive frames
+  if (battPct < 20) {
+    battLowCount[sensorId] = (battLowCount[sensorId] || 0) + 1;
+    if (battLowCount[sensorId] >= 5) {
+      if (!battAlertCooldowns[sensorId] || now - battAlertCooldowns[sensorId] > cooldown) {
+        battAlertCooldowns[sensorId] = now;
+        showAlert('LOW BATTERY: ' + name + ' at ' + battPct + '% (5 consecutive low readings)', 'warn');
+        sendNotification(name + ': Low Battery', 'Battery at ' + battPct + '% for 5 consecutive readings.');
+        blePerf.add('BATT', 'LOW: ' + name + ' at ' + battPct + '% (5 frames)', null);
+      }
+    }
+  } else {
+    // Battery is above 20% — reset the consecutive counter
+    battLowCount[sensorId] = 0;
   }
 }
 
@@ -1248,6 +1685,705 @@ function pollRateSelect(sensorId) {
   return html;
 }
 
+/* ═══════════════════════════════════════════════
+   Flasher — Advanced Telink Mi Flasher
+   ═══════════════════════════════════════════════ */
+
+var flasherMode = 'simple';
+var flDevice = null;        // BLE device for flasher
+var flServer = null;        // GATT server
+var flCustomChar = null;    // 0x1F1F char for config r/w
+var flOtaChar = null;       // OTA char
+var flConfig = null;        // parsed config object
+var flFirmwareData = null;  // ArrayBuffer for advanced OTA
+var flFirmwareInfo = null;
+var flRemoteFirmwares = []; // from GitHub firmware.json
+var flLog = [];
+
+var FL_HW_VERSIONS = [
+  'LYWSD03MMC B1.4','MHO-C401 (old)','CGG1-M 2020/21','LYWSD03MMC B1.6','LYWSD03MMC B1.7',
+  'LYWSD03MMC B1.9','CGDK2','CGG1-M 2022','MHO-C401 2022','MJWSD05MMC (ch)',
+  'LYWSD03MMC B2.0','MHO-C122','MJWSD05MMC (en)','Unknown 13','Unknown 14',
+  'Unknown 15','Unknown 16','TS0201_TZ3000','TH03Z','ZTH01/ZTH02',
+  'TNK01','TH-05Z','Unknown 22','Unknown 23','Unknown 24',
+  'LYWSD03MMC B1.4 (Zigbee)','MHO-C401 Zigbee','CGG1-M Zigbee','LYWSD03MMC B1.6 Zigbee','LYWSD03MMC B1.7 Zigbee',
+  'LYWSD03MMC B1.9 Zigbee','CGDK2 Zigbee','CGG1-M 2022 Zigbee','MHO-C401 2022 Zigbee','MJWSD05MMC Zigbee',
+  'LYWSD03MMC B2.0 Zigbee','MHO-C122 Zigbee','MJWSD05MMC Zigbee','Unknown 38','Unknown 39',
+  'Unknown 40','Unknown 41','Unknown 42','Unknown 43','Unknown 44',
+  'Unknown 45','Unknown 46','Unknown 47'
+];
+
+var FL_TX_POWERS = [
+  { value: 0, label: '-25.3 dBm', reg: 0x00 },
+  { value: 1, label: '-17.1 dBm', reg: 0x01 },
+  { value: 2, label: '-12.2 dBm', reg: 0x02 },
+  { value: 3, label: '-8.7 dBm', reg: 0x03 },
+  { value: 4, label: '-5.8 dBm', reg: 0x04 },
+  { value: 5, label: '-3.5 dBm', reg: 0x05 },
+  { value: 6, label: '-1.6 dBm', reg: 0x06 },
+  { value: 7, label: '0 dBm', reg: 0x07 },
+  { value: 8, label: '1.0 dBm', reg: 0x08 },
+  { value: 9, label: '1.6 dBm', reg: 0x09 },
+  { value: 10, label: '3.0 dBm', reg: 0x0a }
+];
+
+function setFlasherMode(mode) {
+  flasherMode = mode;
+  var simplePanel = document.getElementById('flasherSimple');
+  var advPanel = document.getElementById('flasherAdvanced');
+  var btnSimple = document.getElementById('flasherModeSimple');
+  var btnAdvanced = document.getElementById('flasherModeAdvanced');
+  if (mode === 'simple') {
+    simplePanel.classList.remove('hidden');
+    advPanel.classList.add('hidden');
+    btnSimple.className = 'px-5 py-2 rounded-lg font-mono text-xs font-bold transition-colors bg-amber-500 text-zinc-900';
+    btnAdvanced.className = 'px-5 py-2 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800';
+  } else {
+    simplePanel.classList.add('hidden');
+    advPanel.classList.remove('hidden');
+    btnSimple.className = 'px-5 py-2 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800';
+    btnAdvanced.className = 'px-5 py-2 rounded-lg font-mono text-xs font-bold transition-colors bg-amber-500 text-zinc-900';
+  }
+  lucide.createIcons();
+}
+
+function flLogMsg(msg, type) {
+  var ts = new Date().toISOString().substr(11, 12);
+  var colorCls = type === 'error' ? 'text-red-400' : type === 'success' ? 'text-green-400' : type === 'warn' ? 'text-yellow-400' : type === 'info' ? 'text-amber-400' : 'text-zinc-400';
+  flLog.push({ ts: ts, msg: msg, type: type || '' });
+  var el = document.getElementById('flasherLog');
+  if (!el) return;
+  var div = document.createElement('div');
+  div.className = colorCls;
+  div.textContent = '[' + ts + '] ' + msg;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearFlasherLog() {
+  flLog = [];
+  var el = document.getElementById('flasherLog');
+  if (el) el.innerHTML = '<div class="text-zinc-600">Log cleared.</div>';
+}
+
+function flUpdateConnUI(connected) {
+  var statusEl = document.getElementById('flConnStatus');
+  var btnConn = document.getElementById('btnFlConnect');
+  var btnDisc = document.getElementById('btnFlDisconnect');
+  if (connected) {
+    statusEl.textContent = 'Connected';
+    statusEl.className = 'text-xs font-mono px-2 py-0.5 rounded bg-green-400/10 text-green-400';
+    btnConn.classList.add('hidden');
+    btnDisc.classList.remove('hidden');
+  } else {
+    statusEl.textContent = 'Disconnected';
+    statusEl.className = 'text-xs font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-500';
+    btnConn.classList.remove('hidden');
+    btnDisc.classList.add('hidden');
+    // Hide config sections
+    ['flConfigSection','flComfortSection','flTriggerSection','flMiAuthSection','flDevMgmtSection','flOtaSection','flDeviceInfo'].forEach(function(id) {
+      document.getElementById(id).classList.add('hidden');
+    });
+  }
+  lucide.createIcons();
+}
+
+async function flasherConnect() {
+  if (!navigator.bluetooth) {
+    flLogMsg('Web Bluetooth not supported', 'error');
+    return;
+  }
+  var prefix = document.getElementById('flNamePrefix').value.trim();
+  var filters = prefix ? [{ namePrefix: prefix }] : [{ services: [UUID_CUSTOM_SVC] }];
+  try {
+    flLogMsg('Requesting device' + (prefix ? ' with prefix "' + prefix + '"' : '') + '...');
+    flDevice = await navigator.bluetooth.requestDevice({
+      filters: filters,
+      optionalServices: BLE_OPTIONAL_SVCS
+    });
+    flDevice.addEventListener('gattserverdisconnected', function() {
+      flLogMsg('Device disconnected', 'warn');
+      flServer = null; flCustomChar = null; flOtaChar = null; flConfig = null;
+      flUpdateConnUI(false);
+    });
+    flLogMsg('Connecting to GATT server...');
+    flServer = await flDevice.gatt.connect();
+    flLogMsg('Connected to: ' + (flDevice.name || flDevice.id), 'success');
+
+    // Get Custom service
+    try {
+      var customSvc = await flServer.getPrimaryService(UUID_CUSTOM_SVC);
+      flCustomChar = await customSvc.getCharacteristic(UUID_CUSTOM_CHAR);
+      await flCustomChar.startNotifications();
+      flCustomChar.addEventListener('characteristicvaluechanged', onFlasherNotification);
+      flLogMsg('Custom service ready (0x1F10)', 'success');
+    } catch (e) {
+      flLogMsg('Custom service not found: ' + e.message, 'warn');
+    }
+
+    // Get OTA service
+    try {
+      var otaSvc = await flServer.getPrimaryService(UUID_OTA_SVC);
+      flOtaChar = await otaSvc.getCharacteristic(UUID_OTA_CHAR);
+      flLogMsg('OTA service ready', 'success');
+    } catch (e) {
+      flLogMsg('OTA service not available: ' + e.message, 'warn');
+    }
+
+    flUpdateConnUI(true);
+
+    // Show relevant sections
+    document.getElementById('flDeviceInfo').classList.remove('hidden');
+    if (flCustomChar) {
+      ['flConfigSection','flComfortSection','flTriggerSection','flDevMgmtSection'].forEach(function(id) {
+        document.getElementById(id).classList.remove('hidden');
+      });
+    }
+    if (flOtaChar) {
+      document.getElementById('flOtaSection').classList.remove('hidden');
+    }
+    // Show Mi auth for all devices
+    document.getElementById('flMiAuthSection').classList.remove('hidden');
+
+    // Read device info
+    if (flCustomChar) {
+      flLogMsg('Querying device info (cmd 0x55)...');
+      await flCustomChar.writeValue(new Uint8Array([0x55]));
+      // Also read full config
+      await delay(200);
+      flLogMsg('Reading configuration (cmd 0x55 10)...');
+      await flCustomChar.writeValue(new Uint8Array([0x55, 0x10]));
+    }
+
+  } catch (err) {
+    if (err.name !== 'NotFoundError') {
+      flLogMsg('Connect failed: ' + err.message, 'error');
+    } else {
+      flLogMsg('No device selected', 'warn');
+    }
+  }
+}
+
+function flasherDisconnect() {
+  if (flServer) {
+    try { flServer.disconnect(); } catch (e) {}
+  }
+  flServer = null; flCustomChar = null; flOtaChar = null; flConfig = null; flDevice = null;
+  flUpdateConnUI(false);
+  flLogMsg('Disconnected', 'info');
+}
+
+function onFlasherNotification(event) {
+  var value = event.target.value;
+  var cmd = value.getUint8(0);
+  var len = value.byteLength;
+
+  if (cmd === 0x55) {
+    // Device info / config response
+    if (len >= 3 && value.getUint8(1) !== 0x10) {
+      // Short info: hw_ver, sw_ver
+      var hwVer = value.getUint8(1);
+      var swVer = value.getUint8(2);
+      var hwName = hwVer < FL_HW_VERSIONS.length ? FL_HW_VERSIONS[hwVer] : 'Unknown (' + hwVer + ')';
+      var infoHtml =
+        '<div class="flex justify-between"><span class="text-zinc-500">Hardware</span><span class="text-zinc-300">' + esc(hwName) + ' (ID: ' + hwVer + ')</span></div>' +
+        '<div class="flex justify-between"><span class="text-zinc-500">Firmware</span><span class="text-zinc-300">v' + swVer + '</span></div>' +
+        '<div class="flex justify-between"><span class="text-zinc-500">Device</span><span class="text-zinc-300">' + esc(flDevice ? flDevice.name || flDevice.id : '?') + '</span></div>';
+      document.getElementById('flDevInfoContent').innerHTML = infoHtml;
+      document.getElementById('flDevName').value = flDevice ? (flDevice.name || '') : '';
+      flLogMsg('Device: ' + hwName + ', FW v' + swVer, 'info');
+    }
+    // Full config block (cmd 0x55 with sub-cmd 0x10, len >= 12)
+    if (len >= 12) {
+      parseFlasherConfig(value);
+    }
+  } else if (cmd === 0x35) {
+    // Trigger config response
+    if (len >= 12) {
+      parseTriggerConfig(value);
+    }
+  } else if (cmd === 0x15) {
+    // Comfort config response
+    if (len >= 9) {
+      parseComfortConfig(value);
+    }
+  } else {
+    flLogMsg('Notification cmd=0x' + cmd.toString(16) + ' len=' + len);
+  }
+}
+
+function parseFlasherConfig(value) {
+  var len = value.byteLength;
+  try {
+    flConfig = {};
+    // Standard config block parsing (based on TelinkMiFlasher CustomBlkParse)
+    if (len >= 10) {
+      flConfig.advType = value.getUint8(1) & 0x0f;
+      flConfig.flags = value.getUint8(1) >> 4;
+      flConfig.tempOffset = value.getInt16(2, true);
+      flConfig.humiOffset = value.getInt16(4, true);
+      flConfig.advInterval = value.getUint16(6, true) * 0.625; // convert to ms
+      flConfig.measInterval = value.getUint8(8);
+      flConfig.txPower = value.getUint8(9);
+    }
+    if (len >= 14) {
+      flConfig.connectLatency = value.getUint16(10, true);
+      flConfig.lcdCfg = value.getUint8(12);
+      flConfig.bt5phy = value.getUint8(13);
+    }
+
+    // Update UI fields
+    document.getElementById('flAdvType').value = flConfig.advType || 0;
+    document.getElementById('flAdvInterval').value = Math.round(flConfig.advInterval || 2500);
+    document.getElementById('flMeasInterval').value = flConfig.measInterval || 4;
+    document.getElementById('flTempOffset').value = flConfig.tempOffset || 0;
+    document.getElementById('flHumiOffset').value = flConfig.humiOffset || 0;
+
+    // Map TX power register to select index
+    var txIdx = FL_TX_POWERS.findIndex(function(p) { return p.value === (flConfig.txPower || 7); });
+    document.getElementById('flTxPower').value = txIdx >= 0 ? txIdx : 7;
+
+    // Flags
+    document.getElementById('flFlagScreen').checked = !!(flConfig.flags & 0x01);
+    document.getElementById('flFlagBt5').checked = !!(flConfig.bt5phy);
+    document.getElementById('flFlagLpMeasure').checked = !!(flConfig.flags & 0x04);
+    document.getElementById('flFlagTempF').checked = !!(flConfig.lcdCfg & 0x01);
+
+    flLogMsg('Config loaded: adv=' + ['ATC1441','Custom','Mi-Like','BTHome v1','BTHome v2'][flConfig.advType || 0] +
+      ', interval=' + Math.round(flConfig.advInterval) + 'ms, measure=' + flConfig.measInterval + 's', 'success');
+
+    // Request trigger and comfort configs
+    if (flCustomChar) {
+      flCustomChar.writeValue(new Uint8Array([0x35])).catch(function() {});
+      delay(100).then(function() {
+        flCustomChar.writeValue(new Uint8Array([0x15])).catch(function() {});
+      });
+    }
+  } catch (e) {
+    flLogMsg('Config parse error: ' + e.message, 'error');
+  }
+}
+
+function parseTriggerConfig(value) {
+  try {
+    document.getElementById('flTrigTempThreshold').value = value.getInt16(2, true);
+    document.getElementById('flTrigTempHyst').value = value.getInt16(4, true);
+    document.getElementById('flTrigHumiThreshold').value = value.getInt16(6, true);
+    document.getElementById('flTrigHumiHyst').value = value.getInt16(8, true);
+    if (value.byteLength >= 11) {
+      document.getElementById('flReedSwitch').value = value.getUint8(10);
+    }
+    flLogMsg('Trigger config loaded', 'info');
+  } catch (e) {
+    flLogMsg('Trigger parse error: ' + e.message, 'error');
+  }
+}
+
+function parseComfortConfig(value) {
+  try {
+    document.getElementById('flComfortTempMin').value = value.getInt16(1, true);
+    document.getElementById('flComfortTempMax').value = value.getInt16(3, true);
+    document.getElementById('flComfortHumiMin').value = value.getInt16(5, true);
+    document.getElementById('flComfortHumiMax').value = value.getInt16(7, true);
+    flLogMsg('Comfort parameters loaded', 'info');
+  } catch (e) {
+    flLogMsg('Comfort parse error: ' + e.message, 'error');
+  }
+}
+
+async function flasherReadConfig() {
+  if (!flCustomChar) { flLogMsg('Not connected or no custom service', 'error'); return; }
+  try {
+    flLogMsg('Reading config...');
+    await flCustomChar.writeValue(new Uint8Array([0x55]));
+    await delay(200);
+    await flCustomChar.writeValue(new Uint8Array([0x55, 0x10]));
+  } catch (e) {
+    flLogMsg('Read config failed: ' + e.message, 'error');
+  }
+}
+
+async function flasherWriteConfig() {
+  if (!flCustomChar) { flLogMsg('Not connected or no custom service', 'error'); return; }
+  try {
+    var advType = parseInt(document.getElementById('flAdvType').value) || 0;
+    var flags = 0;
+    if (document.getElementById('flFlagScreen').checked) flags |= 0x01;
+    if (document.getElementById('flFlagLpMeasure').checked) flags |= 0x04;
+
+    var cmd = new Uint8Array(14);
+    cmd[0] = 0x55;
+    cmd[1] = (advType & 0x0f) | (flags << 4);
+    var dv = new DataView(cmd.buffer);
+    dv.setInt16(2, parseInt(document.getElementById('flTempOffset').value) || 0, true);
+    dv.setInt16(4, parseInt(document.getElementById('flHumiOffset').value) || 0, true);
+    dv.setUint16(6, Math.round((parseInt(document.getElementById('flAdvInterval').value) || 2500) / 0.625), true);
+    cmd[8] = parseInt(document.getElementById('flMeasInterval').value) || 4;
+    cmd[9] = parseInt(document.getElementById('flTxPower').value) || 7;
+    dv.setUint16(10, flConfig ? flConfig.connectLatency || 0 : 0, true);
+    cmd[12] = document.getElementById('flFlagTempF').checked ? 1 : 0;
+    cmd[13] = document.getElementById('flFlagBt5').checked ? 1 : 0;
+
+    flLogMsg('Writing config...');
+    await flCustomChar.writeValue(cmd);
+    flLogMsg('Config written successfully!', 'success');
+
+    // Write trigger config
+    var trigCmd = new Uint8Array(12);
+    trigCmd[0] = 0x35;
+    trigCmd[1] = 0x10; // write sub-cmd
+    var tdv = new DataView(trigCmd.buffer);
+    tdv.setInt16(2, parseInt(document.getElementById('flTrigTempThreshold').value) || 0, true);
+    tdv.setInt16(4, parseInt(document.getElementById('flTrigTempHyst').value) || 0, true);
+    tdv.setInt16(6, parseInt(document.getElementById('flTrigHumiThreshold').value) || 0, true);
+    tdv.setInt16(8, parseInt(document.getElementById('flTrigHumiHyst').value) || 0, true);
+    trigCmd[10] = parseInt(document.getElementById('flReedSwitch').value) || 0;
+    await flCustomChar.writeValue(trigCmd);
+    flLogMsg('Trigger config written', 'success');
+
+    // Write comfort config
+    var comCmd = new Uint8Array(9);
+    comCmd[0] = 0x15;
+    var cdv = new DataView(comCmd.buffer);
+    cdv.setInt16(1, parseInt(document.getElementById('flComfortTempMin').value) || 2000, true);
+    cdv.setInt16(3, parseInt(document.getElementById('flComfortTempMax').value) || 2500, true);
+    cdv.setInt16(5, parseInt(document.getElementById('flComfortHumiMin').value) || 4000, true);
+    cdv.setInt16(7, parseInt(document.getElementById('flComfortHumiMax').value) || 6000, true);
+    await flCustomChar.writeValue(comCmd);
+    flLogMsg('Comfort config written', 'success');
+    showAlert('Flasher: Config saved to device', 'success');
+  } catch (e) {
+    flLogMsg('Write config failed: ' + e.message, 'error');
+    showAlert('Flasher: Config write failed — ' + e.message, 'error');
+  }
+}
+
+async function flasherSetDevName() {
+  if (!flCustomChar) { flLogMsg('Not connected', 'error'); return; }
+  var name = document.getElementById('flDevName').value.trim();
+  if (!name) { flLogMsg('Enter a device name', 'warn'); return; }
+  try {
+    var nameBytes = new TextEncoder().encode(name);
+    var cmd = new Uint8Array(1 + nameBytes.length);
+    cmd[0] = 0x56; // set name cmd
+    cmd.set(nameBytes, 1);
+    await flCustomChar.writeValue(cmd);
+    flLogMsg('Device name set to: ' + name, 'success');
+  } catch (e) {
+    flLogMsg('Set name failed: ' + e.message, 'error');
+  }
+}
+
+async function flasherSetMAC() {
+  if (!flCustomChar) { flLogMsg('Not connected', 'error'); return; }
+  var macStr = document.getElementById('flDevMAC').value.trim().replace(/[:\s-]/g, '');
+  if (macStr.length !== 12) { flLogMsg('Invalid MAC address (need 12 hex chars)', 'warn'); return; }
+  try {
+    var macBytes = new Uint8Array(6);
+    for (var i = 0; i < 6; i++) macBytes[i] = parseInt(macStr.substr(i * 2, 2), 16);
+    var cmd = new Uint8Array(7);
+    cmd[0] = 0x57; // set MAC cmd
+    cmd.set(macBytes.reverse(), 1); // little-endian
+    await flCustomChar.writeValue(cmd);
+    flLogMsg('MAC set. Device will restart.', 'success');
+  } catch (e) {
+    flLogMsg('Set MAC failed: ' + e.message, 'error');
+  }
+}
+
+async function flasherSetPinCode() {
+  if (!flCustomChar) { flLogMsg('Not connected', 'error'); return; }
+  var pin = parseInt(document.getElementById('flPinCode').value) || 0;
+  try {
+    var cmd = new Uint8Array(5);
+    cmd[0] = 0x70; // set pincode cmd
+    var dv = new DataView(cmd.buffer);
+    dv.setUint32(1, pin, true);
+    await flCustomChar.writeValue(cmd);
+    flLogMsg('Pin code set to: ' + pin, 'success');
+  } catch (e) {
+    flLogMsg('Set pin failed: ' + e.message, 'error');
+  }
+}
+
+/* ── Mi Authorization ── */
+async function flasherMiGetBindKey() {
+  if (!flCustomChar) { flLogMsg('Not connected', 'error'); return; }
+  try {
+    flLogMsg('Reading Mi Bind Key (cmd 0x44)...');
+    await flCustomChar.writeValue(new Uint8Array([0x44]));
+    // Response comes via notification, parsed in onFlasherNotification
+    // We'll need to handle cmd 0x44 response
+    flLogMsg('Bind key requested — check notification response', 'info');
+  } catch (e) {
+    flLogMsg('Get bind key failed: ' + e.message, 'error');
+  }
+}
+
+async function flasherMiSetBindKey() {
+  if (!flCustomChar) { flLogMsg('Not connected', 'error'); return; }
+  var keyHex = document.getElementById('flMiBindKey').value.trim().replace(/[\s:-]/g, '');
+  if (keyHex.length !== 32) { flLogMsg('Bind key must be 16 bytes (32 hex chars)', 'warn'); return; }
+  try {
+    var keyBytes = new Uint8Array(16);
+    for (var i = 0; i < 16; i++) keyBytes[i] = parseInt(keyHex.substr(i * 2, 2), 16);
+    var cmd = new Uint8Array(17);
+    cmd[0] = 0x45; // set bind key cmd
+    cmd.set(keyBytes, 1);
+    await flCustomChar.writeValue(cmd);
+    flLogMsg('Bind key set', 'success');
+  } catch (e) {
+    flLogMsg('Set bind key failed: ' + e.message, 'error');
+  }
+}
+
+async function flasherMiActivate() {
+  if (!flServer) { flLogMsg('Not connected', 'error'); return; }
+  flLogMsg('Mi Activation starting...', 'info');
+  flLogMsg('Note: Full Mi auth (ECDH key exchange) requires crypto.subtle.', 'info');
+
+  try {
+    // Try to get the Mi auth service (0xfe95)
+    var miAuthSvc = null;
+    try {
+      miAuthSvc = await flServer.getPrimaryService(0xfe95);
+      flLogMsg('Mi auth service (0xFE95) found', 'success');
+    } catch (e) {
+      flLogMsg('Mi auth service not available. Device may already be running custom firmware.', 'warn');
+      return;
+    }
+
+    // Get auth characteristics
+    var charAuth = await miAuthSvc.getCharacteristic(0x0010);
+    var charVer = await miAuthSvc.getCharacteristic(0x0004);
+    await charAuth.startNotifications();
+
+    // ECDH key exchange
+    flLogMsg('Generating ECDH P-256 key pair...');
+    var keyPair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+    var pubKeyRaw = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+    var myPubKey = new Uint8Array(pubKeyRaw);
+
+    flLogMsg('Sending public key to device...');
+
+    // Listen for auth responses
+    var authResolve = null;
+    var authPromise = new Promise(function(resolve) { authResolve = resolve; });
+    var authData = [];
+
+    charAuth.addEventListener('characteristicvaluechanged', function(ev) {
+      var val = new Uint8Array(ev.target.value.buffer);
+      authData.push(val);
+      if (val[0] === 0x00 && val[1] === 0x00 && val[2] === 0x01 && val[3] === 0x01) {
+        flLogMsg('Auth step 1: Device ready', 'info');
+      } else if (val[0] === 0x00 && val[1] === 0x00 && val[2] === 0x01 && val[3] === 0x00) {
+        flLogMsg('Auth step 1: Device confirmed', 'success');
+      } else if (val[0] === 0x02) {
+        flLogMsg('Auth response: token/key data received', 'info');
+        authResolve(authData);
+      }
+    });
+
+    // Step 1: Send auth init
+    await charAuth.writeValue(new Uint8Array([0x00, 0x00, 0x01, 0x00]));
+    await delay(500);
+
+    // Step 2: Send our public key in chunks
+    var chunkSize = 18;
+    for (var i = 0; i < myPubKey.length; i += chunkSize) {
+      var chunk = myPubKey.slice(i, Math.min(i + chunkSize, myPubKey.length));
+      var pkt = new Uint8Array(2 + chunk.length);
+      pkt[0] = 0x00; pkt[1] = 0x0c;
+      pkt.set(chunk, 2);
+      await charAuth.writeValue(pkt);
+      await delay(50);
+    }
+
+    // Step 3: Request device's public key
+    await charAuth.writeValue(new Uint8Array([0x00, 0x00, 0x03, 0x00]));
+    flLogMsg('Waiting for device auth response...', 'info');
+
+    // Wait for response (timeout 10s)
+    var timeout = setTimeout(function() { authResolve(null); }, 10000);
+    var result = await authPromise;
+    clearTimeout(timeout);
+
+    if (!result) {
+      flLogMsg('Mi auth timeout — device may need reset', 'error');
+      return;
+    }
+
+    flLogMsg('Mi activation flow completed. Check bind key field.', 'success');
+    showAlert('Mi activation attempted — check Flasher log', 'success');
+
+  } catch (e) {
+    flLogMsg('Mi activation failed: ' + e.message, 'error');
+  }
+}
+
+/* ── Remote Firmware Loading ── */
+async function flasherLoadRemoteFw() {
+  flLogMsg('Loading firmware list from GitHub...', 'info');
+  try {
+    var resp = await fetch('https://pvvx.github.io/ATC_MiThermometer/firmware.json');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var data = await resp.json();
+    flRemoteFirmwares = [];
+    var select = document.getElementById('flFwSource');
+    select.innerHTML = '<option value="">— select firmware —</option>';
+
+    // Parse firmware.json entries
+    if (Array.isArray(data)) {
+      data.forEach(function(fw, idx) {
+        var name = fw.name || fw.file || ('Firmware ' + idx);
+        var url = fw.url || fw.file;
+        if (url && !url.startsWith('http')) {
+          url = 'https://pvvx.github.io/ATC_MiThermometer/' + url;
+        }
+        flRemoteFirmwares.push({ name: name, url: url, desc: fw.desc || '' });
+        select.innerHTML += '<option value="' + idx + '">' + esc(name) + (fw.desc ? ' — ' + esc(fw.desc) : '') + '</option>';
+      });
+      flLogMsg('Loaded ' + flRemoteFirmwares.length + ' firmware entries', 'success');
+    } else if (typeof data === 'object') {
+      // Handle object format
+      Object.keys(data).forEach(function(key, idx) {
+        var fw = data[key];
+        var name = key;
+        var url = typeof fw === 'string' ? fw : (fw.url || fw.file || '');
+        if (url && !url.startsWith('http')) {
+          url = 'https://pvvx.github.io/ATC_MiThermometer/' + url;
+        }
+        flRemoteFirmwares.push({ name: name, url: url, desc: '' });
+        select.innerHTML += '<option value="' + idx + '">' + esc(name) + '</option>';
+      });
+      flLogMsg('Loaded ' + flRemoteFirmwares.length + ' firmware entries', 'success');
+    }
+  } catch (e) {
+    flLogMsg('Failed to load firmware list: ' + e.message, 'error');
+    showAlert('Failed to fetch firmware list from GitHub', 'error');
+  }
+}
+
+// Handle advanced firmware source selection
+document.addEventListener('change', function(e) {
+  if (e.target.id === 'flFwSource') {
+    var idx = parseInt(e.target.value);
+    if (isNaN(idx) || !flRemoteFirmwares[idx]) return;
+    var fw = flRemoteFirmwares[idx];
+    flLogMsg('Downloading: ' + fw.name + '...');
+    fetch(fw.url)
+      .then(function(resp) {
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.arrayBuffer();
+      })
+      .then(function(buf) {
+        flFirmwareData = buf;
+        flFirmwareInfo = validateFirmware(buf);
+        var infoEl = document.getElementById('flAdvFwInfo');
+        infoEl.classList.remove('hidden');
+        if (flFirmwareInfo.valid) {
+          infoEl.innerHTML =
+            '<div class="flex justify-between"><span class="text-zinc-500">File</span><span class="text-zinc-300">' + esc(fw.name) + '</span></div>' +
+            '<div class="flex justify-between"><span class="text-zinc-500">Size</span><span class="text-zinc-300">' + (flFirmwareInfo.size / 1024).toFixed(1) + ' KB</span></div>' +
+            '<div class="flex justify-between"><span class="text-zinc-500">CRC32</span><span class="text-zinc-300">0x' + flFirmwareInfo.calcCrc.toString(16).toUpperCase() + '</span></div>' +
+            '<div class="flex justify-between"><span class="text-zinc-500">Status</span><span class="text-green-400">Valid Telink firmware</span></div>';
+          document.getElementById('btnFlAdvFlash').disabled = false;
+          flLogMsg('Firmware loaded: ' + fw.name + ' (' + (buf.byteLength / 1024).toFixed(1) + ' KB)', 'success');
+        } else {
+          infoEl.innerHTML =
+            '<div class="flex justify-between"><span class="text-zinc-500">File</span><span class="text-zinc-300">' + esc(fw.name) + '</span></div>' +
+            '<div class="text-red-400">' + esc(flFirmwareInfo.error) + '</div>';
+          document.getElementById('btnFlAdvFlash').disabled = true;
+          flLogMsg('Invalid firmware: ' + flFirmwareInfo.error, 'error');
+        }
+      })
+      .catch(function(err) {
+        flLogMsg('Download failed: ' + err.message, 'error');
+      });
+  }
+});
+
+async function flasherStartOTA() {
+  if (!flOtaChar) { flLogMsg('No OTA service', 'error'); return; }
+  if (!flFirmwareData || !flFirmwareInfo || !flFirmwareInfo.valid) { flLogMsg('No valid firmware loaded', 'error'); return; }
+  if (otaInProgress) return;
+
+  var devName = flDevice ? (flDevice.name || 'device') : 'device';
+  if (!confirm('Flash firmware to "' + devName + '"?\n\nDo not disconnect during the process.')) return;
+
+  otaInProgress = true;
+  document.getElementById('btnFlAdvFlash').disabled = true;
+  var progressBar = document.getElementById('flAdvOtaProgress');
+  var progressFill = document.getElementById('flAdvOtaProgressFill');
+  var statusEl = document.getElementById('flAdvOtaStatus');
+  progressBar.classList.remove('hidden');
+  progressFill.style.width = '0%';
+
+  var fw = new Uint8Array(flFirmwareData);
+  var blockSize = 16;
+  var totalBlocks = Math.ceil(fw.length / blockSize);
+
+  try {
+    flLogMsg('OTA start: ' + totalBlocks + ' blocks, ' + fw.length + ' bytes', 'info');
+    statusEl.textContent = 'Starting OTA...';
+    statusEl.className = 'text-center text-xs text-zinc-400 font-mono mb-3';
+
+    await flOtaChar.writeValueWithoutResponse(new Uint8Array([0x00, 0xff]));
+    await delay(50);
+    await flOtaChar.writeValueWithoutResponse(new Uint8Array([0x01, 0xff]));
+    await delay(50);
+
+    var batchStart = performance.now();
+    for (var blockNr = 0; blockNr < totalBlocks; blockNr++) {
+      var dataStart = blockNr * blockSize;
+      var dataEnd = Math.min(dataStart + blockSize, fw.length);
+      var blockData = fw.slice(dataStart, dataEnd);
+      var padded = new Uint8Array(blockSize);
+      padded.set(blockData);
+      var payload = new Uint8Array(2 + blockSize);
+      payload[0] = blockNr & 0xff;
+      payload[1] = (blockNr >> 8) & 0xff;
+      payload.set(padded, 2);
+      var crc = crc16modbus(payload);
+      var packet = new Uint8Array(payload.length + 2);
+      packet.set(payload);
+      packet[payload.length] = crc & 0xff;
+      packet[payload.length + 1] = (crc >> 8) & 0xff;
+      await flOtaChar.writeValueWithoutResponse(packet);
+
+      if ((blockNr & 7) === 7 || blockNr === totalBlocks - 1) {
+        try { await flOtaChar.readValue(); } catch (e) {}
+        var pct = Math.round(((blockNr + 1) / totalBlocks) * 100);
+        progressFill.style.width = pct + '%';
+        statusEl.textContent = 'Flashing: ' + (blockNr + 1) + ' / ' + totalBlocks + ' (' + pct + '%)';
+        if ((blockNr & 63) === 63) flLogMsg('Progress: ' + pct + '%');
+      }
+    }
+
+    var endPacket = new Uint8Array(6);
+    endPacket[0] = 0x02; endPacket[1] = 0xff;
+    var lastBlock = totalBlocks - 1;
+    endPacket[2] = lastBlock & 0xff; endPacket[3] = (lastBlock >> 8) & 0xff;
+    var notLastBlock = (~lastBlock) & 0xffff;
+    endPacket[4] = notLastBlock & 0xff; endPacket[5] = (notLastBlock >> 8) & 0xff;
+    await flOtaChar.writeValueWithoutResponse(endPacket);
+
+    progressFill.style.width = '100%';
+    statusEl.textContent = 'Firmware update complete! Device will restart.';
+    statusEl.className = 'text-center text-xs text-green-400 font-mono mb-3';
+    flLogMsg('OTA COMPLETE: ' + fw.length + ' bytes, ' + totalBlocks + ' blocks', 'success');
+    showAlert('Firmware flashed successfully!', 'success');
+  } catch (err) {
+    statusEl.textContent = 'OTA failed: ' + err.message;
+    statusEl.className = 'text-center text-xs text-red-400 font-mono mb-3';
+    flLogMsg('OTA FAILED: ' + err.message, 'error');
+    showAlert('Firmware flash failed: ' + err.message, 'error');
+  } finally {
+    otaInProgress = false;
+    document.getElementById('btnFlAdvFlash').disabled = false;
+  }
+}
+
 /* ── OTA Firmware Flashing ── */
 function crc16modbus(buffer) {
   var crc = 0xFFFF;
@@ -1428,11 +2564,12 @@ document.querySelectorAll('.tab-btn').forEach(function(tab) {
     document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.add('hidden'); });
     document.getElementById('tab-' + tab.dataset.tab).classList.remove('hidden');
     if (tab.dataset.tab === 'charts') renderCharts();
+    if (tab.dataset.tab === 'flasher') lucide.createIcons();
     lucide.createIcons();
   });
 });
 
-/* ── File Drop ── */
+/* ── File Drop (Simple mode) ── */
 var fileDrop = document.getElementById('fileDrop');
 var fwFileInput = document.getElementById('fwFile');
 fileDrop.addEventListener('click', function() { fwFileInput.click(); });
@@ -1446,6 +2583,49 @@ fileDrop.addEventListener('drop', function(e) {
 fwFileInput.addEventListener('change', function() {
   if (fwFileInput.files.length) handleFirmwareFile(fwFileInput.files[0]);
 });
+
+/* ── File Drop (Advanced mode) ── */
+var flAdvFileDrop = document.getElementById('flAdvFileDrop');
+var flAdvFwFile = document.getElementById('flAdvFwFile');
+if (flAdvFileDrop && flAdvFwFile) {
+  flAdvFileDrop.addEventListener('click', function() { flAdvFwFile.click(); });
+  flAdvFileDrop.addEventListener('dragover', function(e) { e.preventDefault(); flAdvFileDrop.classList.add('border-amber-500/50'); });
+  flAdvFileDrop.addEventListener('dragleave', function() { flAdvFileDrop.classList.remove('border-amber-500/50'); });
+  flAdvFileDrop.addEventListener('drop', function(e) {
+    e.preventDefault();
+    flAdvFileDrop.classList.remove('border-amber-500/50');
+    if (e.dataTransfer.files.length) handleAdvFirmwareFile(e.dataTransfer.files[0]);
+  });
+  flAdvFwFile.addEventListener('change', function() {
+    if (flAdvFwFile.files.length) handleAdvFirmwareFile(flAdvFwFile.files[0]);
+  });
+}
+
+function handleAdvFirmwareFile(file) {
+  var reader = new FileReader();
+  reader.onload = function() {
+    flFirmwareData = reader.result;
+    flFirmwareInfo = validateFirmware(flFirmwareData);
+    var info = document.getElementById('flAdvFwInfo');
+    info.classList.remove('hidden');
+    if (flFirmwareInfo.valid) {
+      info.innerHTML =
+        '<div class="flex justify-between"><span class="text-zinc-500">File</span><span class="text-zinc-300">' + esc(file.name) + '</span></div>' +
+        '<div class="flex justify-between"><span class="text-zinc-500">Size</span><span class="text-zinc-300">' + (flFirmwareInfo.size / 1024).toFixed(1) + ' KB</span></div>' +
+        '<div class="flex justify-between"><span class="text-zinc-500">CRC32</span><span class="text-zinc-300">0x' + flFirmwareInfo.calcCrc.toString(16).toUpperCase() + '</span></div>' +
+        '<div class="flex justify-between"><span class="text-zinc-500">Status</span><span class="text-green-400">Valid Telink firmware</span></div>';
+      document.getElementById('btnFlAdvFlash').disabled = false;
+      flLogMsg('Local firmware loaded: ' + file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)', 'success');
+    } else {
+      info.innerHTML =
+        '<div class="flex justify-between"><span class="text-zinc-500">File</span><span class="text-zinc-300">' + esc(file.name) + '</span></div>' +
+        '<div class="text-red-400">' + esc(flFirmwareInfo.error) + '</div>';
+      document.getElementById('btnFlAdvFlash').disabled = true;
+      flLogMsg('Invalid firmware: ' + flFirmwareInfo.error, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
 
 /* ── Helpers ── */
 function esc(str) {
@@ -1506,7 +2686,7 @@ function showInstallBanner() {
       '<i data-lucide="download" class="w-5 h-5 text-amber-500"></i>' +
     '</div>' +
     '<div class="flex-1 min-w-0">' +
-      '<div class="font-mono font-bold text-zinc-100 text-sm">Install FilaMon</div>' +
+      '<div class="font-mono font-bold text-zinc-100 text-sm">Install FSCMS</div>' +
       '<div class="text-xs text-zinc-500">Add to home screen for the best experience</div>' +
     '</div>' +
     '<button onclick="installPWA()" class="bg-amber-500 hover:bg-amber-400 text-zinc-900 font-mono font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0">Install</button>' +
@@ -1542,6 +2722,20 @@ async function init() {
   }
   // Render saved devices — manual reconnect via per-card buttons
   renderDashboard();
+
+  // Display build hash in UI
+  var hash = BUILD_HASH;
+  var isSet = hash && hash !== '__BUILD_HASH__';
+  var versionStr = isSet ? 'build ' + hash : 'v2.0-dev';
+  var headerVer = document.querySelector('h1 span');
+  if (headerVer) headerVer.textContent = versionStr;
+  var aboutVer = document.getElementById('aboutVersion');
+  if (aboutVer) aboutVer.textContent = versionStr + ' — Web Bluetooth Edition';
+  var aboutHash = document.getElementById('aboutBuildHash');
+  if (aboutHash) aboutHash.textContent = versionStr;
+  // Log build hash for debugging
+  console.log('%c[FSCMS] Build: ' + (isSet ? hash : 'dev (no commit hash)'), 'color:#f59e0b;font-weight:bold');
+  blePerf.add('INIT', 'FSCMS build: ' + (isSet ? hash : 'dev'), null);
 }
 
 function openDebugPanel() {
@@ -1550,6 +2744,11 @@ function openDebugPanel() {
   blePerf.renderPanel();
   updateDebugConnSummary();
   document.getElementById('debugLogCount').textContent = blePerf.log.length + ' entries';
+  var hashEl = document.getElementById('debugBuildHash');
+  if (hashEl) {
+    var h = BUILD_HASH;
+    hashEl.textContent = (h && h !== '__BUILD_HASH__') ? 'build: ' + h : 'dev build';
+  }
   lucide.createIcons();
 }
 function closeDebugPanel() {
@@ -1587,7 +2786,7 @@ function exportDebugLog() {
   var blob = new Blob([lines.join('\n')], { type: 'text/plain' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
-  a.href = url; a.download = 'filamon-ble-debug-' + new Date().toISOString().substr(0, 19).replace(/:/g, '') + '.txt';
+  a.href = url; a.download = 'fscms-ble-debug-' + new Date().toISOString().substr(0, 19).replace(/:/g, '') + '.txt';
   a.click(); URL.revokeObjectURL(url);
 }
 
@@ -1704,6 +2903,7 @@ init();
         <i data-lucide="terminal" class="w-5 h-5 text-amber-500"></i>
         <h2 class="font-mono font-bold text-zinc-100 text-lg">BLE Debug Log</h2>
         <span id="debugLogCount" class="text-xs text-zinc-500 font-mono">0 entries</span>
+        <span id="debugBuildHash" class="text-xs text-zinc-600 font-mono"></span>
       </div>
       <div class="flex items-center gap-2">
         <button onclick="blePerf.clear()" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors">Clear</button>
