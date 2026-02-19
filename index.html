@@ -96,7 +96,13 @@ tailwind.config = {
 
     <!-- Dashboard Tab -->
     <div class="tab-content" id="tab-dashboard">
-      <div class="flex items-center justify-end gap-2 mb-4">
+      <div class="flex items-center justify-end gap-2 mb-4 flex-wrap">
+        <i data-lucide="arrow-up-down" class="w-3.5 h-3.5 text-zinc-500"></i>
+        <select id="tileSortSelect" onchange="setTileSort(this.value)" class="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 font-mono text-xs text-zinc-300 focus:border-amber-500 focus:outline-none cursor-pointer">
+          <option value="alpha">A → Z</option>
+          <option value="recent">Last Updated</option>
+        </select>
+        <span class="mx-1"></span>
         <i data-lucide="battery-charging" class="w-3.5 h-3.5 text-zinc-500"></i>
         <select id="batteryProfileSelect" onchange="selectBatteryProfile(this.value)" class="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 font-mono text-xs text-zinc-300 focus:border-amber-500 focus:outline-none cursor-pointer">
         </select>
@@ -631,7 +637,7 @@ const UUID_MI_SVC       = 'ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6';
 const UUID_MI_TEMP_CHAR = 'ebe0ccc1-7a0a-4b0c-8a1a-6ff2997da3a6';
 
 /* __BUILD_HASH__ is replaced by pre-commit hook with the short git commit hash */
-const BUILD_HASH = '8f1ed47';
+const BUILD_HASH = 'b6c8898';
 
 const BLE_OPTIONAL_SVCS = [
   UUID_CUSTOM_SVC, UUID_OTA_SVC, UUID_MI_SVC,
@@ -649,7 +655,7 @@ const HW_VERSIONS = [
 const MAX_EXT_OTA_SIZE = 0x34000;
 
 const sensors = {};
-let settings = { warn: 60, crit: 80, retention: 7, names: {}, batteryProfile: 'balanced', bleMode: 'poll' };
+let settings = { warn: 60, crit: 80, retention: 7, names: {}, batteryProfile: 'balanced', bleMode: 'poll', tileSort: 'alpha' };
 // bleMode: 'poll' (connected + notifications) or 'advert' (passive BLE scan)
 // batteryProfile: key into BATTERY_PROFILES — controls firmware config + client-side throttle
 /* ── Battery Profiles ──
@@ -1015,6 +1021,7 @@ function loadSettings() {
   document.getElementById('setRetention').value = settings.retention;
   updateBleModeUI();
   renderBatteryProfiles();
+  initTileSortUI();
 }
 
 function saveSettings() {
@@ -1914,6 +1921,20 @@ function renderDashboard() {
   var savedIds = Object.keys(knownDevices).filter(function(kid) { return activeIds.indexOf(kid) === -1; });
   var allIds = activeIds.concat(savedIds);
 
+  // Sort tiles
+  var sortMode = settings.tileSort || 'alpha';
+  allIds.sort(function(a, b) {
+    if (sortMode === 'recent') {
+      var tA = sensors[a] && sensors[a].lastUpdate ? sensors[a].lastUpdate : 0;
+      var tB = sensors[b] && sensors[b].lastUpdate ? sensors[b].lastUpdate : 0;
+      return tB - tA; // most recent first
+    }
+    // alpha: sort by display name
+    var nA = (settings.names[a] || (sensors[a] ? sensors[a].name : '') || (knownDevices[a] ? knownDevices[a].deviceName : a)).toLowerCase();
+    var nB = (settings.names[b] || (sensors[b] ? sensors[b].name : '') || (knownDevices[b] ? knownDevices[b].deviceName : b)).toLowerCase();
+    return nA < nB ? -1 : nA > nB ? 1 : 0;
+  });
+
   if (allIds.length === 0) {
     grid.innerHTML = '';
     panel.classList.remove('hidden');
@@ -2134,6 +2155,17 @@ function editFriendlyName(el, id) {
   el.appendChild(input);
   input.focus();
   input.select();
+}
+
+/* ── Tile Sort ── */
+function setTileSort(val) {
+  settings.tileSort = val;
+  saveSettings();
+  renderDashboard();
+}
+function initTileSortUI() {
+  var sel = document.getElementById('tileSortSelect');
+  if (sel) sel.value = settings.tileSort || 'alpha';
 }
 
 /* ── Battery Profile UI & Firmware Write ── */
