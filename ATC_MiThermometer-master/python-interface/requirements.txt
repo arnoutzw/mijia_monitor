@@ -1,0 +1,5 @@
+# Base requirements:
+construct
+bleak
+pycryptodome
+arrow

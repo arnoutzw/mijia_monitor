@@ -1,0 +1,11 @@
+[
+    {
+        "fileVersion": 1620652033,
+        "fileSize": 77186,
+        "manufacturerCode": 4098,
+        "imageType": 515,
+        "sha512": "5b8ce429047488dc452828f0cad8b8a6e3908618da86b00be1ba273ae367721c275dcaa495ce535cc81d9a4f7500f540af60740f9fef1ecd8d1b4d331bd5020e",
+        "otaHeaderString": "Tuya to BLE",
+        "url": "https://github.com/pvvx/ATC_MiThermometer/raw/master/zigbee_ota/1002-0203-60993001-ZYZTH02BLE_v56.zigbee"
+    }
+]
