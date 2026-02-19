@@ -849,8 +849,8 @@ var batchReconnectActive = false;
 async function batchReconnect() {
   if (batchReconnectActive) { showAlert('Reconnect already in progress...', 'warn'); return; }
   if (!navigator.bluetooth || !navigator.bluetooth.getDevices) {
-    showAlert('getDevices() not supported — use individual Reconnect buttons.', 'error');
-    blePerf.add('RECONN', 'getDevices() not supported', null);
+    showAlert('Reconnect All requires chrome://flags/#enable-web-bluetooth-new-permissions-backend — use individual Reconnect buttons for now.', 'error');
+    blePerf.add('RECONN', 'getDevices() not available — Chrome flag not enabled', null);
     return;
   }
 
@@ -3328,9 +3328,27 @@ async function init() {
   console.log('%c[FSCMS] Build: ' + (isSet ? hash : 'dev (no commit hash)'), 'color:#f59e0b;font-weight:bold');
   blePerf.add('INIT', 'FSCMS build: ' + (isSet ? hash : 'dev'), null);
 
+  // Check BLE capabilities and warn if Chrome flags are missing
+  checkBleCapabilities();
+
   // Resume advert scan if that was the saved mode
   if (settings.bleMode === 'advert') {
     startAdvertScan();
+  }
+}
+
+function checkBleCapabilities() {
+  if (!navigator.bluetooth) {
+    showAlert('Web Bluetooth not supported in this browser. Use Chrome or Edge.', 'error');
+    blePerf.add('INIT', 'Web Bluetooth API not available', null);
+    return;
+  }
+  var hasGetDevices = !!navigator.bluetooth.getDevices;
+  var hasWatchAdv = typeof BluetoothDevice !== 'undefined' && !!BluetoothDevice.prototype.watchAdvertisements;
+  blePerf.add('INIT', 'BLE caps: getDevices=' + hasGetDevices + ', watchAdvertisements=' + hasWatchAdv, null);
+  if (!hasGetDevices) {
+    showAlert('For best experience, enable chrome://flags/#enable-web-bluetooth-new-permissions-backend — this unlocks silent reconnect and advertisement mode.', 'warn');
+    blePerf.add('INIT', 'Missing getDevices() — Chrome flag not enabled', null);
   }
 }
 
