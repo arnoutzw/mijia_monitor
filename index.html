@@ -1230,6 +1230,10 @@ function onCustomNotification(sensorId, event) {
   blePerf.trackNotification(sensorId);
 
   if (blkid === 0x33 && len >= 8) {
+    // Throttle: firmware pushes 0x33 every ~4-10s on its own.
+    // Only process + store when the poll interval has elapsed.
+    // Always update live readings (temp/humi/batt) for the card,
+    // but only store to IndexedDB and trigger alerts at poll rate.
     var vbat = value.getUint16(1, true);
     var temp = roundTemp(value.getInt16(3, true) / 100.0);
     var humi = roundHumi(value.getUint16(5, true) / 100.0);
@@ -1239,14 +1243,24 @@ function onCustomNotification(sensorId, event) {
     s.temp = temp; s.humi = humi; s.vbat = vbat;
     s.batt = vbatToPercent(vbat); s.count = count;
     s.lastUpdate = new Date();
-    var rate = blePerf.getSensorRate(sensorId);
-    blePerf.add('DATA', 'Custom 0x33 ' + (settings.names[sensorId] || sensorId.substr(0, 8)), null, {
-      temp: temp.toFixed(2), humi: humi.toFixed(1), batt: s.batt + '%',
-      interval: rate ? rate.avgMs + 'ms' : 'first'
-    });
-    storeReading(sensorId, temp, humi, s.batt);
-    checkAlerts(sensorId, humi);
-    checkBatteryAlerts(sensorId, s.batt);
+
+    var now = Date.now();
+    var rate = (settings.pollRates[sensorId] || DEFAULT_POLL_RATE) * 1000;
+    var lastStored = sensorLastPolled[sensorId] || 0;
+
+    if (now - lastStored >= rate) {
+      // Poll interval elapsed → store, alert, log
+      sensorLastPolled[sensorId] = now;
+      var notifRate = blePerf.getSensorRate(sensorId);
+      blePerf.add('DATA', 'Custom 0x33 ' + (settings.names[sensorId] || sensorId.substr(0, 8)), null, {
+        temp: temp.toFixed(2), humi: humi.toFixed(1), batt: s.batt + '%',
+        interval: notifRate ? notifRate.avgMs + 'ms' : 'first'
+      });
+      storeReading(sensorId, temp, humi, s.batt);
+      checkAlerts(sensorId, humi);
+      checkBatteryAlerts(sensorId, s.batt);
+    }
+    // Always re-render dashboard so live card shows current values
     renderDashboard();
   } else if (blkid === 0x55 && len >= 3) {
     var s2 = sensors[sensorId];
@@ -1272,16 +1286,27 @@ function onMiNotification(sensorId, event) {
   var vbat = value.getUint16(3, true);
   var s = sensors[sensorId];
   if (!s) return;
+  // Always update live card values
   s.temp = temp; s.humi = hum; s.vbat = vbat;
   s.batt = vbatToPercent(vbat); s.lastUpdate = new Date();
-  var rate = blePerf.getSensorRate(sensorId);
-  blePerf.add('DATA', 'Mi notif ' + (settings.names[sensorId] || sensorId.substr(0, 8)), null, {
-    temp: temp.toFixed(2), humi: hum, batt: s.batt + '%',
-    interval: rate ? rate.avgMs + 'ms' : 'first'
-  });
-  storeReading(sensorId, temp, hum, s.batt);
-  checkAlerts(sensorId, hum);
-  checkBatteryAlerts(sensorId, s.batt);
+
+  // Throttle storage & alerts to match poll rate
+  var now = Date.now();
+  var rate = (settings.pollRates[sensorId] || DEFAULT_POLL_RATE) * 1000;
+  var lastStored = sensorLastPolled[sensorId] || 0;
+
+  if (now - lastStored >= rate) {
+    sensorLastPolled[sensorId] = now;
+    var perfRate = blePerf.getSensorRate(sensorId);
+    blePerf.add('DATA', 'Mi notif ' + (settings.names[sensorId] || sensorId.substr(0, 8)), null, {
+      temp: temp.toFixed(2), humi: hum, batt: s.batt + '%',
+      interval: perfRate ? perfRate.avgMs + 'ms' : 'first'
+    });
+    storeReading(sensorId, temp, hum, s.batt);
+    checkAlerts(sensorId, hum);
+    checkBatteryAlerts(sensorId, s.batt);
+  }
+  // Always re-render dashboard so live card shows current values
   renderDashboard();
 }
 
@@ -3077,21 +3102,13 @@ function timeAgo(date) {
 setInterval(renderDashboard, 5000);
 // Per-sensor polling: check every second, only poll sensors whose interval has elapsed
 // Skipped entirely in advert mode — data arrives passively via BLE advertisements
-setInterval(function() {
-  if (settings.bleMode === 'advert') return; // passive mode, no polling
-  var now = Date.now();
-  Object.values(sensors).forEach(function(s) {
-    if (!s.customChar || !s.server) return;
-    var rate = (settings.pollRates[s.id] || DEFAULT_POLL_RATE) * 1000;
-    var last = sensorLastPolled[s.id] || 0;
-    if (now - last < rate) return;
-    sensorLastPolled[s.id] = now;
-    var label = settings.names[s.id] || s.name || s.id.substr(0, 8);
-    bleTimed('POLL', 'writeValue(0x33) ' + label, function() {
-      return s.customChar.writeValue(new Uint8Array([0x33, 0xC8]));
-    }).catch(function(e) {});
-  });
-}, 1000);
+/* ── Active polling removed ──
+   ATC firmware pushes 0x33 notifications at its own measure interval.
+   We no longer write 0x33 actively — the receive-side throttle in
+   onCustomNotification / onMiNotification gates storage & alerts to
+   the user's configured poll rate while still updating live UI values.
+   To change the firmware's push interval, use Flasher → Advanced →
+   Sensor Configuration → "Measure Interval (s)" (cmd 0x55).          */
 setInterval(cleanOldData, 3600000);
 
 function requestNotificationPermission() {
