@@ -1373,17 +1373,21 @@ async function startAdvertScan() {
   var watchCount = 0;
 
   // Strategy 1: Watch already-connected sensor device objects
-  var sensorDevices = Object.values(sensors).filter(function(s) { return s.device && s.device.watchAdvertisements; });
-  for (var i = 0; i < sensorDevices.length; i++) {
+  var sensorList = Object.values(sensors);
+  blePerf.add('ADV', 'Active sensors: ' + sensorList.length, null);
+  for (var i = 0; i < sensorList.length; i++) {
+    var s = sensorList[i];
+    var dev = s.device;
+    if (!dev) { blePerf.add('ADV', 'Sensor ' + s.id.substr(0,8) + ' has no device object', null); continue; }
+    if (!dev.watchAdvertisements) { blePerf.add('ADV', 'Device ' + (dev.name || dev.id) + ' lacks watchAdvertisements', null); continue; }
     try {
-      var dev = sensorDevices[i].device;
       dev.addEventListener('advertisementreceived', onAdvertReceived);
       await dev.watchAdvertisements();
       advWatchedDevices.push({ device: dev });
       watchCount++;
       blePerf.add('ADV', 'Watching: ' + (dev.name || dev.id.substr(0, 8)), null);
     } catch (e) {
-      blePerf.add('ADV', 'watchAdvertisements failed on sensor: ' + e.message, null);
+      blePerf.add('ADV', 'watchAdvertisements failed on ' + (dev.name || dev.id) + ': ' + e.message, null);
     }
   }
 
@@ -1391,14 +1395,13 @@ async function startAdvertScan() {
   if (navigator.bluetooth.getDevices) {
     try {
       var pairedDevices = await navigator.bluetooth.getDevices();
-      var knownIds = Object.keys(knownDevices);
+      blePerf.add('ADV', 'getDevices() returned ' + pairedDevices.length + ' device(s)', null);
       var alreadyWatching = advWatchedDevices.map(function(w) { return w.device.id; });
 
       for (var j = 0; j < pairedDevices.length; j++) {
         var pd = pairedDevices[j];
-        if (alreadyWatching.indexOf(pd.id) !== -1) continue; // already watching
-        if (knownIds.indexOf(pd.id) === -1) continue; // not a known sensor
-        if (!pd.watchAdvertisements) continue; // API not available on this device
+        if (alreadyWatching.indexOf(pd.id) !== -1) continue;
+        if (!pd.watchAdvertisements) { blePerf.add('ADV', 'Paired device ' + (pd.name || pd.id) + ' lacks watchAdvertisements', null); continue; }
 
         try {
           pd.addEventListener('advertisementreceived', onAdvertReceived);
@@ -1407,18 +1410,20 @@ async function startAdvertScan() {
           watchCount++;
           blePerf.add('ADV', 'Watching (paired): ' + (pd.name || pd.id.substr(0, 8)), null);
         } catch (e2) {
-          blePerf.add('ADV', 'watchAdvertisements failed on paired device: ' + e2.message, null);
+          blePerf.add('ADV', 'watchAdvertisements failed on paired ' + (pd.name || pd.id) + ': ' + e2.message, null);
         }
       }
     } catch (e3) {
       blePerf.add('ADV', 'getDevices() failed: ' + e3.message, null);
     }
+  } else {
+    blePerf.add('ADV', 'getDevices() not available in this browser', null);
   }
 
   // Strategy 3: Fallback to requestLEScan if watchAdvertisements found nothing
   if (watchCount === 0 && navigator.bluetooth.requestLEScan) {
     try {
-      blePerf.add('ADV', 'No paired devices to watch, trying requestLEScan...', null);
+      blePerf.add('ADV', 'No watched devices yet, trying requestLEScan fallback...', null);
       advScanAbort = new AbortController();
       await navigator.bluetooth.requestLEScan({
         filters: [{ namePrefix: 'ATC_' }],
@@ -1434,7 +1439,7 @@ async function startAdvertScan() {
 
   if (watchCount === 0) {
     showAlert('No devices available for advertisement watching. Pair sensors first in Poll mode, then switch to Advert.', 'warn');
-    blePerf.add('ADV', 'No devices could be watched', null);
+    blePerf.add('ADV', 'No devices could be watched — 0 active sensors, 0 paired devices', null);
     settings.bleMode = 'poll'; saveSettings(); updateBleModeUI();
     return;
   }
@@ -1444,7 +1449,7 @@ async function startAdvertScan() {
   blePerf.add('ADV', 'Watch started: ' + watchCount + ' device(s)', null);
   updateConnectionStatus('connected');
 
-  // Disconnect GATT connections to save sensor battery
+  // Disconnect GATT connections to save sensor battery (after watches are set up)
   Object.values(sensors).forEach(function(s) {
     if (s.server) {
       try { s.server.disconnect(); } catch (e) {}
