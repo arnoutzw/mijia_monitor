@@ -1191,6 +1191,30 @@ async function connectDevice(device, silent) {
           return sensorData.customChar.writeValue(new Uint8Array([0x55]));
         });
       } catch (ec) {}
+
+      // Auto-apply battery profile to newly connected sensor
+      try {
+        var bp = BATTERY_PROFILES[settings.batteryProfile];
+        if (bp) {
+          await new Promise(function(r) { setTimeout(r, 300); });
+          var cmd = new Uint8Array(14);
+          cmd[0] = 0x55;
+          cmd[1] = 0x41; // custom adv type + lp_measures
+          var dv = new DataView(cmd.buffer);
+          dv.setInt16(2, 0, true);
+          dv.setInt16(4, 0, true);
+          dv.setUint16(6, Math.round(bp.advInterval / 0.625), true);
+          cmd[8] = Math.min(255, bp.measInterval);
+          cmd[9] = bp.txPower;
+          dv.setUint16(10, 0, true);
+          cmd[12] = 0;
+          cmd[13] = 0;
+          await sensorData.customChar.writeValue(cmd);
+          blePerf.add('PROFILE', 'Auto-applied "' + bp.label + '" to ' + devLabel, null);
+        }
+      } catch (ep) {
+        blePerf.add('PROFILE', 'Auto-apply failed on ' + devLabel + ': ' + ep.message, null);
+      }
     }
 
     blePerf.add('CONN', 'COMPLETE: ' + devLabel, performance.now() - connectStart, {
@@ -2139,7 +2163,7 @@ async function writeBatteryProfileToSensors(key) {
 
   if (sensorList.length === 0) {
     if (status) {
-      status.textContent = 'Profile saved locally. Will apply to sensors when connected via Flasher.';
+      status.textContent = 'Profile saved. Connect sensors to apply.';
       status.classList.remove('hidden');
     }
     return;
