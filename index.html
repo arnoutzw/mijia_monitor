@@ -50,6 +50,9 @@ tailwind.config = {
     </div>
     <div class="flex gap-2 items-center">
       <div id="statusDot" class="w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-red-500/30" title="No devices connected"></div>
+      <button id="btnReconnectAll" onclick="batchReconnect()" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-400 text-xs font-mono px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5" title="Reconnect all saved devices sequentially">
+        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Reconnect All
+      </button>
       <button onclick="openDebugPanel()" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-400 text-xs font-mono px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5" title="BLE Debug Log">
         <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Debug
       </button>
@@ -410,7 +413,112 @@ function confirmForgetDevice() {
   blePerf.add('FORGET', 'Device forgotten: ' + id, null);
 }
 
-/* autoReconnect removed — use manual reconnect per device via requestDevice({ name }) */
+/* ── Batched Sequential Auto-Reconnect ── */
+var batchReconnectActive = false;
+
+async function batchReconnect() {
+  if (batchReconnectActive) { showAlert('Reconnect already in progress...'); return; }
+  if (!navigator.bluetooth || !navigator.bluetooth.getDevices) {
+    showAlert('getDevices() not supported — use individual Reconnect buttons.');
+    blePerf.add('RECONN', 'getDevices() not supported', null);
+    return;
+  }
+
+  batchReconnectActive = true;
+  var batchStart = performance.now();
+  updateConnectionStatus('connecting');
+  updateReconnectButton(true);
+
+  try {
+    // Step 1: Get all previously paired BLE device objects from browser
+    var allDevices = await bleTimed('RECONN', 'getDevices()', function() {
+      return navigator.bluetooth.getDevices();
+    });
+
+    var knownIds = Object.keys(knownDevices);
+    var pairedDevices = allDevices.filter(function(d) {
+      return knownIds.indexOf(d.id) !== -1;
+    });
+
+    // Filter to only disconnected ones
+    var pending = pairedDevices.filter(function(d) {
+      return !sensors[d.id] || !sensors[d.id].server;
+    });
+
+    blePerf.add('RECONN', 'Batch start: ' + pending.length + ' disconnected of ' + pairedDevices.length + ' paired (' + knownIds.length + ' saved)', null);
+
+    if (pending.length === 0) {
+      showAlert('All saved devices are already connected.');
+      batchReconnectActive = false;
+      updateConnectionStatus(getOverallStatus());
+      updateReconnectButton(false);
+      return;
+    }
+
+    // Step 2: Connect sequentially with delay between each
+    var succeeded = 0;
+    var failed = 0;
+    var DELAY_BETWEEN_MS = 2000;
+
+    for (var i = 0; i < pending.length; i++) {
+      if (!batchReconnectActive) break; // allow cancellation
+
+      var dev = pending[i];
+      var devLabel = dev.name || dev.id.substr(0, 12);
+      showAlert('Connecting ' + (i + 1) + '/' + pending.length + ': ' + devLabel + '...');
+
+      try {
+        await connectDevice(dev, true);
+        succeeded++;
+        blePerf.add('RECONN', 'Batch OK: ' + devLabel + ' (' + (i + 1) + '/' + pending.length + ')', null);
+      } catch (err) {
+        failed++;
+        blePerf.add('RECONN', 'Batch FAIL: ' + devLabel + ' — ' + err.message, null);
+      }
+
+      // Cooldown between devices to avoid BLE overload
+      if (i < pending.length - 1) {
+        await delay(DELAY_BETWEEN_MS);
+      }
+    }
+
+    blePerf.add('RECONN', 'Batch complete', performance.now() - batchStart, {
+      ok: succeeded, fail: failed, total: pending.length
+    });
+    showAlert('Reconnect done: ' + succeeded + ' connected, ' + failed + ' failed of ' + pending.length);
+  } catch (err) {
+    blePerf.add('RECONN', 'Batch error: ' + err.message, performance.now() - batchStart);
+    showAlert('Reconnect error: ' + err.message);
+  } finally {
+    batchReconnectActive = false;
+    updateConnectionStatus(getOverallStatus());
+    updateReconnectButton(false);
+    renderDashboard();
+  }
+}
+
+function cancelBatchReconnect() {
+  if (batchReconnectActive) {
+    batchReconnectActive = false;
+    showAlert('Reconnect cancelled.');
+    blePerf.add('RECONN', 'Batch cancelled by user', null);
+  }
+}
+
+function updateReconnectButton(active) {
+  var btn = document.getElementById('btnReconnectAll');
+  if (!btn) return;
+  if (active) {
+    btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Cancel';
+    btn.onclick = cancelBatchReconnect;
+    btn.className = 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 text-xs font-mono px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5';
+  } else {
+    btn.innerHTML = '<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Reconnect All';
+    btn.onclick = batchReconnect;
+    btn.className = 'bg-zinc-700 hover:bg-zinc-600 text-zinc-400 text-xs font-mono px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5';
+  }
+  lucide.createIcons();
+}
 
 /* ── IndexedDB ── */
 function openDB() {
@@ -1392,29 +1500,9 @@ function modalManualAdd() {
   closeAddSensorModal();
   scanAndConnect();
 }
-async function reconnectAllSaved() {
+function reconnectAllSaved() {
   closeAddSensorModal();
-  var ids = Object.keys(knownDevices);
-  var pending = ids.filter(function(id) { return !sensors[id] || !sensors[id].server; });
-  if (pending.length === 0) { showAlert('All saved devices are already connected.'); return; }
-  var connected = 0;
-  blePerf.add('RECONN', 'Reconnect all: ' + pending.length + ' device(s)', null);
-  for (var i = 0; i < pending.length; i++) {
-    var devName = knownDevices[pending[i]].deviceName;
-    try {
-      var device = await navigator.bluetooth.requestDevice({
-        filters: [{ name: devName }],
-        optionalServices: BLE_OPTIONAL_SVCS
-      });
-      await connectDevice(device, false);
-      connected++;
-      showAlert('Connected ' + connected + '/' + pending.length + '. Select next in picker.');
-    } catch (err) {
-      if (err.name === 'NotFoundError') break; // user cancelled picker
-      blePerf.add('RECONN', 'Reconnect all skip: ' + devName + ' — ' + err.message, null);
-    }
-  }
-  if (connected > 0) showAlert('Reconnected ' + connected + ' device(s).');
+  batchReconnect();
 }
 
 init();
@@ -1447,7 +1535,7 @@ init();
         <i data-lucide="refresh-cw" class="w-5 h-5"></i>
         <div class="text-left">
           <div class="text-sm font-bold">Reconnect All Saved</div>
-          <div class="text-xs font-normal text-zinc-500">Retry connecting all known devices</div>
+          <div class="text-xs font-normal text-zinc-500">Auto-connect sequentially, no picker needed</div>
         </div>
       </button>
     </div>
