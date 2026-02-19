@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <rect width="192" height="192" rx="32" fill="#1a1b2e"/>
+  <g transform="translate(96,96)">
+    <!-- Thermometer body -->
+    <rect x="-12" y="-60" width="24" height="80" rx="12" fill="none" stroke="#60a5fa" stroke-width="4"/>
+    <!-- Thermometer bulb -->
+    <circle cx="0" cy="30" r="20" fill="none" stroke="#60a5fa" stroke-width="4"/>
+    <circle cx="0" cy="30" r="12" fill="#f97316"/>
+    <!-- Mercury column -->
+    <rect x="-4" y="-30" width="8" height="60" rx="4" fill="#f97316"/>
+    <!-- Humidity drop -->
+    <path d="M40,-20 Q40,-40 52,-20 Q64,-40 64,-20 Q64,0 52,10 Q40,0 40,-20Z" fill="#38bdf8" opacity="0.8"/>
+    <!-- Scale marks -->
+    <rect x="16" y="-45" width="10" height="3" rx="1" fill="#60a5fa" opacity="0.6"/>
+    <rect x="16" y="-30" width="10" height="3" rx="1" fill="#60a5fa" opacity="0.6"/>
+    <rect x="16" y="-15" width="10" height="3" rx="1" fill="#60a5fa" opacity="0.6"/>
+  </g>
+</svg>

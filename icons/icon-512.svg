@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="80" fill="#1a1b2e"/>
+  <g transform="translate(256,256)">
+    <!-- Thermometer body -->
+    <rect x="-30" y="-160" width="60" height="210" rx="30" fill="none" stroke="#60a5fa" stroke-width="10"/>
+    <!-- Thermometer bulb -->
+    <circle cx="0" cy="80" r="52" fill="none" stroke="#60a5fa" stroke-width="10"/>
+    <circle cx="0" cy="80" r="32" fill="#f97316"/>
+    <!-- Mercury column -->
+    <rect x="-10" y="-80" width="20" height="160" rx="10" fill="#f97316"/>
+    <!-- Humidity drop -->
+    <path d="M100,-60 Q100,-110 136,-60 Q172,-110 172,-60 Q172,10 136,35 Q100,10 100,-60Z" fill="#38bdf8" opacity="0.8"/>
+    <!-- Scale marks -->
+    <rect x="40" y="-120" width="26" height="7" rx="3" fill="#60a5fa" opacity="0.6"/>
+    <rect x="40" y="-80" width="26" height="7" rx="3" fill="#60a5fa" opacity="0.6"/>
+    <rect x="40" y="-40" width="26" height="7" rx="3" fill="#60a5fa" opacity="0.6"/>
+    <!-- Filament spool hint -->
+    <circle cx="-120" cy="-80" r="50" fill="none" stroke="#a78bfa" stroke-width="8" opacity="0.5"/>
+    <circle cx="-120" cy="-80" r="20" fill="none" stroke="#a78bfa" stroke-width="6" opacity="0.5"/>
+  </g>
+</svg>

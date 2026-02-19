@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#09090b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>FilaMon — Filament Storage Monitor</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/svg+xml" href="icons/icon-192.svg">
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace']
+      }
+    }
+  }
+}
+</script>
+<style>
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #18181b; }
+::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #52525b; }
+.chart-wrap { position: relative; height: 250px; }
+</style>
+</head>
+<body class="bg-zinc-950 text-zinc-300 font-sans text-sm min-h-screen flex flex-col">
+
+  <!-- Alert Banner -->
+  <div id="alertBanner" class="hidden bg-red-500/20 border-b border-red-500/50 text-red-400 px-5 py-3 text-center font-mono font-bold text-sm"></div>
+
+  <!-- Header -->
+  <header class="sticky top-0 z-40 bg-zinc-900/80 backdrop-blur-sm border-b border-zinc-800 px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-3">
+      <div class="flex gap-1.5">
+        <div class="w-3 h-3 rounded-full bg-red-500"></div>
+        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+      </div>
+      <h1 class="font-mono font-bold text-lg text-amber-500">FilaMon<span class="text-zinc-500 font-normal text-xs ml-2">v2.0</span></h1>
+    </div>
+    <div class="flex gap-2 items-center">
+      <div id="statusDot" class="w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-red-500/30" title="No devices connected"></div>
+      <button onclick="openDebugPanel()" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-400 text-xs font-mono px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5" title="BLE Debug Log">
+        <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Debug
+      </button>
+      <button onclick="openAddSensorModal()" class="bg-amber-500 hover:bg-amber-400 text-zinc-900 font-mono font-bold px-4 py-2 rounded-lg transition-colors text-sm flex items-center gap-2">
+        <i data-lucide="plus" class="w-4 h-4"></i> Add Sensor
+      </button>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6">
+
+    <!-- Tabs -->
+    <div class="flex gap-1 mb-6 bg-zinc-900 rounded-lg p-1 border border-zinc-800">
+      <button class="tab-btn flex-1 text-center py-2.5 rounded-lg font-mono text-xs font-bold transition-colors bg-amber-500 text-zinc-900" data-tab="dashboard">
+        <i data-lucide="layout-dashboard" class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"></i>Dashboard
+      </button>
+      <button class="tab-btn flex-1 text-center py-2.5 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800" data-tab="charts">
+        <i data-lucide="bar-chart-3" class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"></i>Charts
+      </button>
+      <button class="tab-btn flex-1 text-center py-2.5 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800" data-tab="firmware">
+        <i data-lucide="cpu" class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"></i>Firmware
+      </button>
+      <button class="tab-btn flex-1 text-center py-2.5 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800" data-tab="settings">
+        <i data-lucide="settings" class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"></i>Settings
+      </button>
+    </div>
+
+    <!-- Dashboard Tab -->
+    <div class="tab-content" id="tab-dashboard">
+      <div id="sensorGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6"></div>
+      <div id="connectPanel" class="text-center py-16 px-6">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-zinc-800 border border-zinc-700 mb-4">
+          <i data-lucide="radio" class="w-8 h-8 text-zinc-500"></i>
+        </div>
+        <h2 class="font-mono font-bold text-xl text-zinc-100 mb-2">No Sensors Connected</h2>
+        <p class="text-zinc-500 mb-6 max-w-md mx-auto">Connect a Mijia LYWSD03MMC sensor via Bluetooth to start monitoring your filament storage conditions.</p>
+        <button onclick="openAddSensorModal()" class="bg-amber-500 hover:bg-amber-400 text-zinc-900 font-mono font-bold px-6 py-2.5 rounded-lg transition-colors inline-flex items-center gap-2">
+          <i data-lucide="plus" class="w-4 h-4"></i> Add Sensor
+        </button>
+        <p class="text-xs text-zinc-600 font-mono mt-4">Pair ATC sensors or manually pick any BLE device.<br>Previously paired sensors reconnect automatically on page load.</p>
+      </div>
+    </div>
+
+    <!-- Charts Tab -->
+    <div class="tab-content hidden" id="tab-charts">
+      <div id="chartsContainer"></div>
+      <div id="noChartsMsg" class="text-center py-16 text-zinc-500 font-mono">
+        <i data-lucide="bar-chart-3" class="w-10 h-10 mx-auto mb-3 text-zinc-600"></i>
+        <p>Connect sensors to see historical charts.</p>
+      </div>
+    </div>
+
+    <!-- Firmware Tab -->
+    <div class="tab-content hidden" id="tab-firmware">
+      <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5 max-w-2xl mx-auto">
+        <div class="flex items-center gap-3 mb-5">
+          <div class="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+            <i data-lucide="zap" class="w-5 h-5 text-amber-500"></i>
+          </div>
+          <div>
+            <h2 class="font-mono font-bold text-zinc-100 text-lg">Firmware Update</h2>
+            <p class="text-xs text-zinc-500 font-mono">Telink OTA over BLE</p>
+          </div>
+        </div>
+
+        <!-- Device select -->
+        <div class="mb-4">
+          <label class="text-xs text-zinc-500 font-mono block mb-1.5">Target Device</label>
+          <select id="otaDeviceSelect" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 font-mono text-sm text-zinc-100 focus:border-amber-500 focus:outline-none">
+            <option value="">— connect a sensor first —</option>
+          </select>
+        </div>
+
+        <!-- File drop -->
+        <div id="fileDrop" class="border-2 border-dashed border-zinc-700 rounded-lg p-8 text-center mb-4 cursor-pointer hover:border-amber-500/50 transition-colors">
+          <input type="file" id="fwFile" accept=".bin" class="hidden">
+          <i data-lucide="upload" class="w-8 h-8 text-zinc-500 mx-auto mb-3"></i>
+          <p class="text-zinc-400 text-sm">Drop firmware <span class="font-mono text-amber-500">.bin</span> file here or click to browse</p>
+        </div>
+
+        <!-- Firmware info -->
+        <div id="fwInfo" class="hidden bg-zinc-800 rounded-lg p-4 mb-4 font-mono text-xs space-y-1.5"></div>
+
+        <!-- Progress bar -->
+        <div id="otaProgress" class="hidden w-full h-3 bg-zinc-800 rounded-full overflow-hidden mb-4">
+          <div id="otaProgressFill" class="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-100" style="width:0%"></div>
+        </div>
+
+        <!-- Status -->
+        <div id="otaStatus" class="text-center text-sm text-zinc-500 font-mono mb-4"></div>
+
+        <!-- Flash button -->
+        <button id="btnFlash" disabled onclick="startOTA()" class="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-900 font-mono font-bold px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
+          <i data-lucide="zap" class="w-4 h-4"></i> Flash Firmware
+        </button>
+      </div>
+    </div>
+
+    <!-- Settings Tab -->
+    <div class="tab-content hidden" id="tab-settings">
+      <div class="max-w-2xl mx-auto space-y-4">
+
+        <!-- Thresholds -->
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm mb-4 flex items-center gap-2">
+            <i data-lucide="alert-triangle" class="w-4 h-4"></i> Humidity Thresholds
+          </h3>
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <label class="text-zinc-400 text-sm">Warning level (%)</label>
+              <input type="number" id="setWarn" min="0" max="100" value="50" onchange="saveSettings()" class="w-24 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-sm text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
+            </div>
+            <div class="flex items-center justify-between">
+              <label class="text-zinc-400 text-sm">Critical level (%)</label>
+              <input type="number" id="setCrit" min="0" max="100" value="60" onchange="saveSettings()" class="w-24 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-sm text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
+            </div>
+          </div>
+        </div>
+
+        <!-- Sensor names -->
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm mb-4 flex items-center gap-2">
+            <i data-lucide="tag" class="w-4 h-4"></i> Sensor Names
+          </h3>
+          <div id="sensorNamesList">
+            <p class="text-zinc-500 text-xs font-mono">Connect sensors to assign friendly names.</p>
+          </div>
+        </div>
+
+        <!-- Data management -->
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm mb-4 flex items-center gap-2">
+            <i data-lucide="database" class="w-4 h-4"></i> Data Management
+          </h3>
+          <div class="flex items-center justify-between mb-4">
+            <label class="text-zinc-400 text-sm">History retention (days)</label>
+            <input type="number" id="setRetention" min="1" max="90" value="7" onchange="saveSettings()" class="w-24 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-sm text-zinc-100 text-right focus:border-amber-500 focus:outline-none">
+          </div>
+          <button onclick="clearHistory()" class="bg-red-500/20 hover:bg-red-500/30 text-red-400 font-mono font-bold text-xs px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear All History
+          </button>
+        </div>
+
+        <!-- About -->
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm mb-3 flex items-center gap-2">
+            <i data-lucide="info" class="w-4 h-4"></i> About
+          </h3>
+          <p class="text-xs text-zinc-500 font-mono leading-relaxed">FilaMon v2.0 — Web Bluetooth Edition<br>
+          Direct BLE connection to Mijia LYWSD03MMC sensors running ATC custom firmware.<br>
+          OTA firmware flashing via Telink BLE protocol.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+<script>
+/* ═══════════════════════════════════════════════
+   FilaMon v2.0 — Web Bluetooth Direct Connection
+   ═══════════════════════════════════════════════ */
+
+const UUID_CUSTOM_SVC   = '00001f10-0000-1000-8000-00805f9b34fb';
+const UUID_CUSTOM_CHAR  = '00001f1f-0000-1000-8000-00805f9b34fb';
+const UUID_OTA_SVC      = '00010203-0405-0607-0809-0a0b0c0d1912';
+const UUID_OTA_CHAR     = '00010203-0405-0607-0809-0a0b0c0d2b12';
+const UUID_MI_SVC       = 'ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6';
+const UUID_MI_TEMP_CHAR = 'ebe0ccc1-7a0a-4b0c-8a1a-6ff2997da3a6';
+
+const BLE_OPTIONAL_SVCS = [
+  UUID_CUSTOM_SVC, UUID_OTA_SVC, UUID_MI_SVC,
+  '22210000-554a-4546-5542-46534450464d',
+  0x180a, 0x181c, 0x181e, 0xfe95, 0x1f10, 0x1f11,
+  0x181a, 0xfff9, 0xfdcd, 0xffe0, 0xfcd2
+];
+
+const HW_VERSIONS = [
+  'LYWSD03MMC','MHO-C401(old)','CGG1-M(2020/21)','LYWSD03MMC','LYWSD03MMC',
+  'LYWSD03MMC','CGDK2','CGG1-M(2022)','MHO-C401(2022)','MJWSD05MMC(ch)',
+  'LYWSD03MMC','MHO-C122','MJWSD05MMC(en)'
+];
+
+const MAX_EXT_OTA_SIZE = 0x34000;
+
+const sensors = {};
+let settings = { warn: 50, crit: 60, retention: 7, names: {}, pollRates: {} };
+// pollRates: { sensorId: seconds } — default 10s, options: 5, 30, 60, 300, 1800
+var POLL_OPTIONS = [
+  { value: 5, label: '5s' },
+  { value: 30, label: '30s' },
+  { value: 60, label: '1m' },
+  { value: 300, label: '5m' },
+  { value: 1800, label: '30m' }
+];
+var DEFAULT_POLL_RATE = 10; // seconds
+var sensorLastPolled = {}; // { sensorId: timestamp ms }
+let knownDevices = {};  // { deviceId: { deviceName, lastSeen } } — persisted in localStorage
+let alertCooldowns = {};
+let firmwareData = null;
+let firmwareInfo = null;
+let otaInProgress = false;
+let db = null;
+
+/* ── BLE Performance Logger ── */
+var blePerf = {
+  log: [],
+  maxEntries: 500,
+  sensorStats: {},  // per-sensor notification stats
+  add: function(category, label, durationMs, extra) {
+    var entry = {
+      t: new Date().toISOString().substr(11, 12),
+      ts: performance.now(),
+      cat: category,
+      label: label,
+      ms: durationMs !== null ? Math.round(durationMs * 100) / 100 : null,
+      extra: extra || null
+    };
+    this.log.push(entry);
+    if (this.log.length > this.maxEntries) this.log.shift();
+    // Console output with color coding
+    var color = durationMs > 2000 ? 'color:#ef4444;font-weight:bold'  // red >2s
+              : durationMs > 500  ? 'color:#f59e0b;font-weight:bold'  // amber >500ms
+              : durationMs > 100  ? 'color:#eab308'                   // yellow >100ms
+              : 'color:#22c55e';                                       // green
+    var durStr = durationMs !== null ? ' [' + durationMs.toFixed(1) + 'ms]' : '';
+    var extraStr = extra ? ' ' + JSON.stringify(extra) : '';
+    console.log('%c[BLE:' + category + '] ' + label + durStr + extraStr, color);
+    this.renderPanel();
+  },
+  trackNotification: function(sensorId) {
+    var now = performance.now();
+    if (!this.sensorStats[sensorId]) {
+      this.sensorStats[sensorId] = { count: 0, first: now, last: now, intervals: [] };
+    }
+    var st = this.sensorStats[sensorId];
+    if (st.count > 0) {
+      st.intervals.push(now - st.last);
+      if (st.intervals.length > 50) st.intervals.shift();
+    }
+    st.count++;
+    st.last = now;
+  },
+  getSensorRate: function(sensorId) {
+    var st = this.sensorStats[sensorId];
+    if (!st || st.intervals.length === 0) return null;
+    var sum = st.intervals.reduce(function(a, b) { return a + b; }, 0);
+    var avg = sum / st.intervals.length;
+    var min = Math.min.apply(null, st.intervals);
+    var max = Math.max.apply(null, st.intervals);
+    return { avgMs: Math.round(avg), minMs: Math.round(min), maxMs: Math.round(max), count: st.count };
+  },
+  clear: function() {
+    this.log = [];
+    this.sensorStats = {};
+    this.renderPanel();
+    console.log('%c[BLE] Performance log cleared', 'color:#71717a');
+  },
+  renderPanel: function() {
+    var el = document.getElementById('blePerfLog');
+    if (!el) return;
+    var recent = this.log.slice(-30).reverse();
+    var html = recent.map(function(e) {
+      var cls = e.ms > 2000 ? 'text-red-400' : e.ms > 500 ? 'text-amber-400' : e.ms > 100 ? 'text-yellow-400' : 'text-green-400';
+      var dur = e.ms !== null ? '<span class="' + cls + '">' + e.ms.toFixed(1) + 'ms</span>' : '';
+      var ex = e.extra ? ' <span class="text-zinc-600">' + JSON.stringify(e.extra) + '</span>' : '';
+      return '<div class="flex gap-2 items-baseline"><span class="text-zinc-600 shrink-0">' + e.t + '</span>' +
+        '<span class="text-zinc-500 shrink-0 w-14">[' + e.cat + ']</span>' +
+        '<span class="text-zinc-300 flex-1">' + e.label + '</span>' +
+        '<span class="shrink-0 tabular-nums">' + dur + '</span>' + ex + '</div>';
+    }).join('');
+    el.innerHTML = html || '<div class="text-zinc-600">No BLE activity yet.</div>';
+    // Update sensor rate stats
+    var rateEl = document.getElementById('blePerfRates');
+    if (rateEl) {
+      var rateHtml = '';
+      var self = this;
+      Object.keys(this.sensorStats).forEach(function(sid) {
+        var r = self.getSensorRate(sid);
+        if (!r) return;
+        var name = settings.names[sid] || (sensors[sid] ? sensors[sid].name : sid.substr(0, 12));
+        rateHtml += '<div class="flex justify-between"><span class="text-zinc-400">' + esc(name) + '</span>' +
+          '<span class="text-zinc-300">' + r.count + ' msgs, avg ' + r.avgMs + 'ms, min ' + r.minMs + 'ms, max ' + r.maxMs + 'ms</span></div>';
+      });
+      rateEl.innerHTML = rateHtml || '<div class="text-zinc-600">No notifications yet.</div>';
+    }
+  }
+};
+
+// Helper: time an async operation
+async function bleTimed(category, label, fn, extra) {
+  var t0 = performance.now();
+  try {
+    var result = await fn();
+    blePerf.add(category, label, performance.now() - t0, extra);
+    return result;
+  } catch (err) {
+    blePerf.add(category, label + ' FAILED: ' + err.message, performance.now() - t0, extra);
+    throw err;
+  }
+}
+
+/* ── Known Devices Persistence ── */
+function loadKnownDevices() {
+  try {
+    var d = JSON.parse(localStorage.getItem('filamon_devices'));
+    if (d) knownDevices = d;
+  } catch (e) {}
+}
+
+function saveKnownDevice(id, deviceName) {
+  knownDevices[id] = { deviceName: deviceName || id, lastSeen: Date.now() };
+  localStorage.setItem('filamon_devices', JSON.stringify(knownDevices));
+}
+
+function showForgetConfirm(id) {
+  var name = settings.names[id] || (knownDevices[id] ? knownDevices[id].deviceName : id);
+  document.getElementById('forgetDeviceName').textContent = name;
+  document.getElementById('forgetDeviceId').textContent = id;
+  document.getElementById('forgetModal').dataset.deviceId = id;
+  document.getElementById('forgetModal').classList.remove('hidden');
+  lucide.createIcons();
+}
+function closeForgetModal() {
+  document.getElementById('forgetModal').classList.add('hidden');
+}
+function confirmForgetDevice() {
+  var id = document.getElementById('forgetModal').dataset.deviceId;
+  // Disconnect if connected
+  if (sensors[id] && sensors[id].server) {
+    try { sensors[id].server.disconnect(); } catch (e) {}
+  }
+  delete sensors[id];
+  // Wipe from known devices + settings
+  delete knownDevices[id];
+  delete settings.names[id];
+  localStorage.setItem('filamon_devices', JSON.stringify(knownDevices));
+  saveSettings();
+  // Wipe IndexedDB history for this sensor
+  if (db) {
+    try {
+      var tx = db.transaction('history', 'readwrite');
+      var store = tx.objectStore('history');
+      var idx = store.index('sensor');
+      var req = idx.openCursor(IDBKeyRange.only(id));
+      var deleted = 0;
+      req.onsuccess = function(e) {
+        var cursor = e.target.result;
+        if (cursor) { cursor.delete(); deleted++; cursor.continue(); }
+        else { blePerf.add('FORGET', 'Wiped ' + deleted + ' history records for ' + id, null); }
+      };
+    } catch (e) {}
+  }
+  // Wipe perf stats
+  delete blePerf.sensorStats[id];
+  closeForgetModal();
+  renderDashboard();
+  updateSensorNamesList();
+  updateOTADeviceList();
+  blePerf.add('FORGET', 'Device forgotten: ' + id, null);
+}
+
+/* autoReconnect removed — use manual reconnect per device via requestDevice({ name }) */
+
+/* ── IndexedDB ── */
+function openDB() {
+  return new Promise(function(resolve, reject) {
+    var req = indexedDB.open('FilaMonDB', 1);
+    req.onupgradeneeded = function(e) {
+      var d = e.target.result;
+      if (!d.objectStoreNames.contains('history')) {
+        var store = d.createObjectStore('history', { autoIncrement: true });
+        store.createIndex('sensor', 'sensor', { unique: false });
+        store.createIndex('time', 'time', { unique: false });
+      }
+    };
+    req.onsuccess = function() { db = req.result; resolve(db); };
+    req.onerror = function() { reject(req.error); };
+  });
+}
+
+function storeReading(sensorId, temp, humi, batt) {
+  if (!db) return;
+  var tx = db.transaction('history', 'readwrite');
+  tx.objectStore('history').add({ sensor: sensorId, time: Date.now(), temp: temp, humi: humi, batt: batt });
+}
+
+function getHistory(sensorId, hours) {
+  hours = hours || 24;
+  return new Promise(function(resolve) {
+    if (!db) return resolve([]);
+    var since = Date.now() - hours * 3600000;
+    var tx = db.transaction('history', 'readonly');
+    var idx = tx.objectStore('history').index('sensor');
+    var results = [];
+    var req = idx.openCursor(IDBKeyRange.only(sensorId));
+    req.onsuccess = function(e) {
+      var cursor = e.target.result;
+      if (cursor) {
+        if (cursor.value.time >= since) results.push(cursor.value);
+        cursor.continue();
+      } else resolve(results);
+    };
+    req.onerror = function() { resolve([]); };
+  });
+}
+
+function cleanOldData() {
+  if (!db) return;
+  var cutoff = Date.now() - settings.retention * 86400000;
+  var tx = db.transaction('history', 'readwrite');
+  var store = tx.objectStore('history');
+  var idx = store.index('time');
+  var req = idx.openCursor(IDBKeyRange.upperBound(cutoff));
+  req.onsuccess = function(e) {
+    var cursor = e.target.result;
+    if (cursor) { cursor.delete(); cursor.continue(); }
+  };
+}
+
+/* ── Settings ── */
+function loadSettings() {
+  try {
+    var s = JSON.parse(localStorage.getItem('filamon_settings'));
+    if (s) settings = Object.assign({}, settings, s);
+  } catch (e) {}
+  if (!settings.pollRates) settings.pollRates = {};
+  document.getElementById('setWarn').value = settings.warn;
+  document.getElementById('setCrit').value = settings.crit;
+  document.getElementById('setRetention').value = settings.retention;
+}
+
+function saveSettings() {
+  settings.warn = parseInt(document.getElementById('setWarn').value) || 50;
+  settings.crit = parseInt(document.getElementById('setCrit').value) || 60;
+  settings.retention = parseInt(document.getElementById('setRetention').value) || 7;
+  localStorage.setItem('filamon_settings', JSON.stringify(settings));
+  renderDashboard();
+}
+
+function clearHistory() {
+  if (!confirm('Clear all historical data?')) return;
+  if (!db) return;
+  var tx = db.transaction('history', 'readwrite');
+  tx.objectStore('history').clear();
+  Object.values(sensors).forEach(function(s) { if (s.chart) { s.chart.destroy(); s.chart = null; } });
+  renderCharts();
+}
+
+/* ── BLE Connection ── */
+var autoPairActive = false;
+
+async function autoPairATC() {
+  if (!navigator.bluetooth) {
+    alert('Web Bluetooth is not supported in this browser. Use Chrome, Edge, or Opera.');
+    return;
+  }
+  autoPairActive = true;
+  var paired = 0;
+  showAlert('Auto Pair: select each ATC_ sensor in the picker. Cancel when done.');
+
+  while (autoPairActive) {
+    try {
+      var device = await navigator.bluetooth.requestDevice({
+        filters: [{ namePrefix: 'ATC_' }],
+        optionalServices: BLE_OPTIONAL_SVCS
+      });
+      // Skip if already connected
+      if (sensors[device.id] && sensors[device.id].server) {
+        showAlert('Already connected: ' + (device.name || device.id));
+        continue;
+      }
+      await connectDevice(device, false);
+      paired++;
+      showAlert('Paired ' + paired + ' sensor(s). Select next or cancel picker to finish.');
+    } catch (err) {
+      // User cancelled the picker — stop looping
+      autoPairActive = false;
+      if (paired > 0) {
+        showAlert('Auto Pair complete: ' + paired + ' sensor(s) paired.');
+      }
+      break;
+    }
+  }
+  autoPairActive = false;
+}
+
+async function scanAndConnect() {
+  if (!navigator.bluetooth) {
+    alert('Web Bluetooth is not supported in this browser. Use Chrome, Edge, or Opera.');
+    return;
+  }
+  try {
+    var device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: 'ATC_' }],
+      optionalServices: BLE_OPTIONAL_SVCS
+    });
+    await connectDevice(device);
+  } catch (err) {
+    if (err.name !== 'NotFoundError') {
+      console.error('BLE scan error:', err);
+      alert('Connection failed: ' + err.message);
+    }
+  }
+}
+
+async function connectDevice(device, silent) {
+  var id = device.id || device.name || ('dev_' + Date.now());
+  var devLabel = device.name || id.substr(0, 12);
+  var connectStart = performance.now();
+  updateConnectionStatus('connecting');
+  blePerf.add('CONN', 'Connect started: ' + devLabel, null, { id: id });
+
+  try {
+    device.addEventListener('gattserverdisconnected', function() { onDisconnect(id); });
+
+    var server = await bleTimed('GATT', 'gatt.connect() ' + devLabel, function() {
+      return device.gatt.connect();
+    });
+
+    var sensorData = {
+      device: device, server: server, id: id,
+      name: settings.names[id] || device.name || 'Sensor',
+      customChar: null, otaChar: null, miTempChar: null,
+      temp: null, humi: null, batt: null, vbat: null,
+      count: 0, lastUpdate: null, chart: null,
+      hwVer: null, swVer: null, hwName: null, cfg: null
+    };
+
+    // Detect compatible services — reject incompatible devices
+    var hasCustom = false;
+    var hasMi = false;
+
+    try {
+      var customSvc = await bleTimed('SVC', 'getPrimaryService(custom) ' + devLabel, function() {
+        return server.getPrimaryService(UUID_CUSTOM_SVC);
+      });
+      var customChar = await bleTimed('CHAR', 'getCharacteristic(custom) ' + devLabel, function() {
+        return customSvc.getCharacteristic(UUID_CUSTOM_CHAR);
+      });
+      sensorData.customChar = customChar;
+      hasCustom = true;
+      await bleTimed('NOTIF', 'startNotifications(custom) ' + devLabel, function() {
+        return customChar.startNotifications();
+      });
+      customChar.addEventListener('characteristicvaluechanged', function(e) { onCustomNotification(id, e); });
+      await bleTimed('WRITE', 'writeValue(0x33 poll cmd) ' + devLabel, function() {
+        return customChar.writeValue(new Uint8Array([0x33, 0xC8]));
+      });
+    } catch (e) {
+      blePerf.add('SVC', 'Custom service not found: ' + devLabel, null);
+    }
+
+    if (!hasCustom) {
+      try {
+        var miSvc = await bleTimed('SVC', 'getPrimaryService(mi) ' + devLabel, function() {
+          return server.getPrimaryService(UUID_MI_SVC);
+        });
+        var miChar = await bleTimed('CHAR', 'getCharacteristic(mi_temp) ' + devLabel, function() {
+          return miSvc.getCharacteristic(UUID_MI_TEMP_CHAR);
+        });
+        sensorData.miTempChar = miChar;
+        hasMi = true;
+        await bleTimed('NOTIF', 'startNotifications(mi) ' + devLabel, function() {
+          return miChar.startNotifications();
+        });
+        miChar.addEventListener('characteristicvaluechanged', function(e) { onMiNotification(id, e); });
+      } catch (e2) {
+        blePerf.add('SVC', 'Mi service not found: ' + devLabel, null);
+      }
+    }
+
+    // If neither ATC custom nor Mi temp service found → incompatible device
+    if (!hasCustom && !hasMi) {
+      try { server.disconnect(); } catch (dc) {}
+      blePerf.add('CONN', 'REJECTED incompatible: ' + devLabel, performance.now() - connectStart);
+      updateConnectionStatus(getOverallStatus());
+      if (!silent) alert('Incompatible device: "' + (device.name || id) + '"\n\nNo Mijia / ATC temperature service found.\nOnly LYWSD03MMC and compatible sensors with ATC or original firmware are supported.');
+      return;
+    }
+
+    try {
+      var otaSvc = await bleTimed('SVC', 'getPrimaryService(ota) ' + devLabel, function() {
+        return server.getPrimaryService(UUID_OTA_SVC);
+      });
+      var otaChar = await bleTimed('CHAR', 'getCharacteristic(ota) ' + devLabel, function() {
+        return otaSvc.getCharacteristic(UUID_OTA_CHAR);
+      });
+      sensorData.otaChar = otaChar;
+    } catch (e3) {
+      blePerf.add('SVC', 'OTA service not available: ' + devLabel, null);
+    }
+
+    sensors[id] = sensorData;
+    saveKnownDevice(id, device.name);
+    updateConnectionStatus('connected');
+    updateOTADeviceList();
+    updateSensorNamesList();
+    renderDashboard();
+
+    if (hasCustom && sensorData.customChar) {
+      try {
+        await bleTimed('WRITE', 'writeValue(0x55 hw query) ' + devLabel, function() {
+          return sensorData.customChar.writeValue(new Uint8Array([0x55]));
+        });
+      } catch (ec) {}
+    }
+
+    blePerf.add('CONN', 'COMPLETE: ' + devLabel, performance.now() - connectStart, {
+      custom: hasCustom, mi: hasMi, ota: !!sensorData.otaChar
+    });
+
+  } catch (err) {
+    blePerf.add('CONN', 'FAILED: ' + devLabel + ' — ' + err.message, performance.now() - connectStart);
+    console.error('Connect error:', err);
+    if (!silent) alert('Failed to connect: ' + err.message);
+    updateConnectionStatus(getOverallStatus());
+  }
+}
+
+function getOverallStatus() {
+  return Object.values(sensors).some(function(s) { return !!s.server; }) ? 'connected' : 'disconnected';
+}
+
+function onDisconnect(sensorId) {
+  var s = sensors[sensorId];
+  if (s) { s.server = null; s.customChar = null; s.otaChar = null; s.miTempChar = null; }
+  updateConnectionStatus(getOverallStatus());
+  updateOTADeviceList();
+  renderDashboard();
+}
+
+async function reconnectByName(bleName) {
+  if (!navigator.bluetooth) { alert('Web Bluetooth not supported.'); return; }
+  blePerf.add('RECONN', 'Reconnect by name: ' + bleName, null);
+  try {
+    var device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: bleName }],
+      optionalServices: BLE_OPTIONAL_SVCS
+    });
+    await connectDevice(device, false);
+  } catch (err) {
+    if (err.name !== 'NotFoundError') {
+      blePerf.add('RECONN', 'Reconnect failed: ' + bleName + ' — ' + err.message, null);
+      alert('Reconnect failed: ' + err.message);
+    }
+    updateConnectionStatus(getOverallStatus());
+  }
+}
+
+/* ── BLE Notifications ── */
+function onCustomNotification(sensorId, event) {
+  var value = event.target.value;
+  var blkid = value.getUint8(0);
+  var len = value.byteLength;
+  blePerf.trackNotification(sensorId);
+
+  if (blkid === 0x33 && len >= 8) {
+    var vbat = value.getUint16(1, true);
+    var temp = value.getInt16(3, true) / 100.0;
+    var humi = value.getUint16(5, true) / 100.0;
+    var count = value.getUint16(7, true);
+    var s = sensors[sensorId];
+    if (!s) return;
+    s.temp = temp; s.humi = humi; s.vbat = vbat;
+    s.batt = vbatToPercent(vbat); s.count = count;
+    s.lastUpdate = new Date();
+    var rate = blePerf.getSensorRate(sensorId);
+    blePerf.add('DATA', 'Custom 0x33 ' + (settings.names[sensorId] || sensorId.substr(0, 8)), null, {
+      temp: temp.toFixed(2), humi: humi.toFixed(1), batt: s.batt + '%',
+      interval: rate ? rate.avgMs + 'ms' : 'first'
+    });
+    storeReading(sensorId, temp, humi, s.batt);
+    checkAlerts(sensorId, humi);
+    renderDashboard();
+  } else if (blkid === 0x55 && len >= 3) {
+    var s2 = sensors[sensorId];
+    if (!s2) return;
+    s2.hwVer = value.getUint8(1);
+    s2.swVer = value.getUint8(2);
+    if (s2.hwVer < HW_VERSIONS.length) s2.hwName = HW_VERSIONS[s2.hwVer];
+    blePerf.add('DATA', 'HW info 0x55 ' + (settings.names[sensorId] || sensorId.substr(0, 8)), null, {
+      hw: s2.hwVer, sw: s2.swVer, name: s2.hwName
+    });
+    renderDashboard();
+  } else {
+    blePerf.add('DATA', 'Unknown cmd 0x' + blkid.toString(16) + ' len=' + len + ' ' + sensorId.substr(0, 8), null);
+  }
+}
+
+function onMiNotification(sensorId, event) {
+  var value = event.target.value;
+  if (value.byteLength < 5) return;
+  blePerf.trackNotification(sensorId);
+  var temp = value.getInt16(0, true) / 100.0;
+  var hum = value.getUint8(2);
+  var vbat = value.getUint16(3, true);
+  var s = sensors[sensorId];
+  if (!s) return;
+  s.temp = temp; s.humi = hum; s.vbat = vbat;
+  s.batt = vbatToPercent(vbat); s.lastUpdate = new Date();
+  var rate = blePerf.getSensorRate(sensorId);
+  blePerf.add('DATA', 'Mi notif ' + (settings.names[sensorId] || sensorId.substr(0, 8)), null, {
+    temp: temp.toFixed(2), humi: hum, batt: s.batt + '%',
+    interval: rate ? rate.avgMs + 'ms' : 'first'
+  });
+  storeReading(sensorId, temp, hum, s.batt);
+  checkAlerts(sensorId, hum);
+  renderDashboard();
+}
+
+function vbatToPercent(mv) {
+  var pct = Math.round(((mv / 1000) - 2.1) / (3.1 - 2.1) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+/* ── Alerts ── */
+function checkAlerts(sensorId, humi) {
+  var s = sensors[sensorId];
+  if (!s) return;
+  var now = Date.now();
+  var cooldown = 1800000;
+  if (humi >= settings.crit) {
+    if (!alertCooldowns[sensorId] || now - alertCooldowns[sensorId] > cooldown) {
+      alertCooldowns[sensorId] = now;
+      var name = settings.names[sensorId] || s.name;
+      showAlert('CRITICAL: ' + name + ' humidity at ' + humi.toFixed(1) + '%');
+      sendNotification(name + ': Humidity Critical!', 'Humidity is ' + humi.toFixed(1) + '% — above ' + settings.crit + '% threshold.');
+    }
+  } else if (humi >= settings.warn) {
+    if (!alertCooldowns[sensorId] || now - alertCooldowns[sensorId] > cooldown) {
+      alertCooldowns[sensorId] = now;
+      showAlert('WARNING: ' + (settings.names[sensorId] || s.name) + ' humidity at ' + humi.toFixed(1) + '%');
+    }
+  }
+}
+
+function showAlert(msg) {
+  var banner = document.getElementById('alertBanner');
+  banner.textContent = msg;
+  banner.classList.remove('hidden');
+  setTimeout(function() { banner.classList.add('hidden'); }, 10000);
+}
+
+function sendNotification(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, { body: body, icon: 'icons/icon-192.svg' });
+  }
+}
+
+/* ── UI Rendering ── */
+function updateConnectionStatus(status) {
+  var dot = document.getElementById('statusDot');
+  dot.className = 'w-2.5 h-2.5 rounded-full ring-2 ';
+  if (status === 'connected') dot.className += 'bg-green-400 ring-green-400/30';
+  else if (status === 'connecting') dot.className += 'bg-yellow-400 ring-yellow-400/30 animate-pulse';
+  else dot.className += 'bg-red-500 ring-red-500/30';
+}
+
+function renderDashboard() {
+  var grid = document.getElementById('sensorGrid');
+  var panel = document.getElementById('connectPanel');
+
+  // Merge connected sensors + known (saved) devices not yet connected
+  var activeIds = Object.keys(sensors);
+  var savedIds = Object.keys(knownDevices).filter(function(kid) { return activeIds.indexOf(kid) === -1; });
+  var allIds = activeIds.concat(savedIds);
+
+  if (allIds.length === 0) {
+    grid.innerHTML = '';
+    panel.classList.remove('hidden');
+    return;
+  }
+  panel.classList.add('hidden');
+
+  grid.innerHTML = allIds.map(function(id) {
+    var s = sensors[id];
+    var isSavedOnly = !s;
+    var connected = s ? !!s.server : false;
+    var name = settings.names[id] || (s ? s.name : null) || (knownDevices[id] ? knownDevices[id].deviceName : id);
+    // Saved-only (not currently connected) card
+    if (isSavedOnly) {
+      var devName = knownDevices[id] ? knownDevices[id].deviceName : id;
+      return '<div class="group bg-zinc-900 border border-zinc-800 rounded-lg p-5 opacity-60 hover:opacity-100 transition-all duration-300">' +
+        '<div class="flex justify-between items-start mb-4">' +
+          '<div>' +
+            '<div class="font-mono font-bold text-zinc-400">' + esc(name) + '</div>' +
+            '<div class="text-xs text-zinc-600 font-mono mt-0.5">' + esc(devName) + '</div>' +
+          '</div>' +
+          '<span class="text-xs px-2 py-0.5 bg-zinc-800 text-zinc-500 rounded font-mono">SAVED</span>' +
+        '</div>' +
+        '<div class="grid grid-cols-2 gap-3 mb-4">' +
+          '<div class="bg-zinc-800/50 rounded-lg p-3 text-center">' +
+            '<div class="font-mono font-bold text-2xl text-zinc-600">—</div>' +
+            '<div class="text-xs text-zinc-600 font-mono mt-1">TEMP °C</div>' +
+          '</div>' +
+          '<div class="bg-zinc-800/50 rounded-lg p-3 text-center">' +
+            '<div class="font-mono font-bold text-2xl text-zinc-600">—</div>' +
+            '<div class="text-xs text-zinc-600 font-mono mt-1">HUMIDITY</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="flex justify-center gap-2">' +
+          '<button onclick="reconnectByName(\'' + esc(devName) + '\')" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs font-mono px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5"><i data-lucide="bluetooth" class="w-3.5 h-3.5"></i> Reconnect</button>' +
+          '<button onclick="showForgetConfirm(\'' + id + '\')" class="bg-zinc-800 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 text-xs font-mono px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5 border border-zinc-700 hover:border-red-500/30"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Forget</button>' +
+        '</div>' +
+      '</div>';
+    }
+
+    var ago = s.lastUpdate ? timeAgo(s.lastUpdate) : 'never';
+    var borderClass = '';
+    if (s.humi !== null && s.humi >= settings.crit) borderClass = 'border-red-500/50';
+    else if (s.humi !== null && s.humi >= settings.warn) borderClass = 'border-yellow-500/50';
+    else borderClass = 'border-zinc-700';
+
+    var humiColor = 'text-amber-500';
+    if (s.humi !== null && s.humi >= settings.crit) humiColor = 'text-red-400';
+    else if (s.humi !== null && s.humi >= settings.warn) humiColor = 'text-yellow-400';
+
+    var battPct = s.batt || 0;
+    var battColor = battPct > 50 ? 'bg-green-400' : battPct > 20 ? 'bg-yellow-400' : 'bg-red-400';
+
+    return '<div class="group bg-zinc-900 border ' + borderClass + ' rounded-lg p-5 hover:border-amber-500/50 hover:shadow-lg hover:shadow-amber-500/10 hover:-translate-y-1 transition-all duration-300">' +
+      '<div class="flex justify-between items-start mb-4">' +
+        '<div>' +
+          '<div class="font-mono font-bold text-zinc-100">' + esc(name) + '</div>' +
+          '<div class="text-xs text-zinc-500 font-mono mt-0.5">' + esc(s.device ? s.device.name || id : id) + (s.hwName ? ' &middot; ' + esc(s.hwName) : '') + '</div>' +
+        '</div>' +
+        (connected
+          ? '<span class="text-xs px-2 py-0.5 bg-green-400/10 text-green-400 rounded font-mono">LIVE</span>'
+          : '<button onclick="reconnectByName(\'' + esc(s.device ? s.device.name || '' : '') + '\')" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs font-mono px-3 py-1.5 rounded-lg transition-colors">Reconnect</button>') +
+      '</div>' +
+      '<div class="grid grid-cols-2 gap-3 mb-4">' +
+        '<div class="bg-zinc-800 rounded-lg p-3 text-center">' +
+          '<div class="font-mono font-bold text-2xl text-amber-500">' + (s.temp !== null ? s.temp.toFixed(1) + '°' : '—') + '</div>' +
+          '<div class="text-xs text-zinc-500 font-mono mt-1">TEMP °C</div>' +
+        '</div>' +
+        '<div class="bg-zinc-800 rounded-lg p-3 text-center">' +
+          '<div class="font-mono font-bold text-2xl ' + humiColor + '">' + (s.humi !== null ? s.humi.toFixed(1) + '%' : '—') + '</div>' +
+          '<div class="text-xs text-zinc-500 font-mono mt-1">HUMIDITY</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="flex items-center justify-between text-xs text-zinc-500 font-mono">' +
+        '<div class="flex items-center gap-2">' +
+          '<div class="flex items-center gap-1.5">' +
+            '<div class="w-8 h-2.5 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700">' +
+              '<div class="h-full ' + battColor + ' rounded-full" style="width:' + battPct + '%"></div>' +
+            '</div>' +
+            '<span>' + (s.batt !== null ? s.batt + '%' : '?') + '</span>' +
+          '</div>' +
+          (s.vbat ? '<span class="text-zinc-600">' + (s.vbat / 1000).toFixed(2) + 'V</span>' : '') +
+        '</div>' +
+        '<div class="flex items-center gap-1.5">' +
+          '<i data-lucide="timer" class="w-3 h-3 text-zinc-600"></i>' +
+          pollRateSelect(id) +
+        '</div>' +
+        '<span>' + ago + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  lucide.createIcons();
+}
+
+function renderCharts() {
+  var container = document.getElementById('chartsContainer');
+  var noMsg = document.getElementById('noChartsMsg');
+  var ids = Object.keys(sensors);
+
+  if (ids.length === 0) {
+    container.innerHTML = '';
+    noMsg.classList.remove('hidden');
+    return;
+  }
+  noMsg.classList.add('hidden');
+
+  ids.forEach(function(id) {
+    var s = sensors[id];
+    var name = settings.names[id] || s.name;
+    var chartDiv = document.getElementById('chart-' + id);
+    if (!chartDiv) {
+      chartDiv = document.createElement('div');
+      chartDiv.id = 'chart-' + id;
+      chartDiv.className = 'bg-zinc-900 border border-zinc-700 rounded-lg p-5 mb-4';
+      chartDiv.innerHTML = '<h3 class="font-mono text-sm text-zinc-400 mb-3">' + esc(name) + '</h3><div class="chart-wrap"><canvas id="canvas-' + id + '"></canvas></div>';
+      container.appendChild(chartDiv);
+    } else {
+      chartDiv.querySelector('h3').textContent = name;
+    }
+
+    getHistory(id, 24).then(function(history) {
+      if (history.length === 0) return;
+      var tempData = history.map(function(h) { return { x: h.time, y: h.temp }; });
+      var humiData = history.map(function(h) { return { x: h.time, y: h.humi }; });
+
+      if (s.chart) {
+        s.chart.data.datasets[0].data = tempData;
+        s.chart.data.datasets[1].data = humiData;
+        s.chart.update('none');
+      } else {
+        var ctx = document.getElementById('canvas-' + id);
+        if (!ctx) return;
+        s.chart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            datasets: [
+              { label: 'Temp °C', data: tempData, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', yAxisID: 'yTemp', tension: 0.3, pointRadius: 0, borderWidth: 2, fill: true },
+              { label: 'Humidity %', data: humiData, borderColor: '#a1a1aa', backgroundColor: 'rgba(161,161,170,0.06)', yAxisID: 'yHumi', tension: 0.3, pointRadius: 0, borderWidth: 2, fill: true }
+            ]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { labels: { color: '#71717a', font: { family: 'JetBrains Mono', size: 11 }, boxWidth: 10, padding: 16 } } },
+            scales: {
+              x: { type: 'time', time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } }, grid: { color: 'rgba(63,63,70,0.4)' }, ticks: { color: '#71717a', font: { family: 'JetBrains Mono', size: 10 }, maxTicksLimit: 12 } },
+              yTemp: { position: 'left', grid: { color: 'rgba(63,63,70,0.2)' }, ticks: { color: '#f59e0b', font: { family: 'JetBrains Mono', size: 10 } }, title: { display: true, text: '°C', color: '#f59e0b', font: { family: 'JetBrains Mono' } } },
+              yHumi: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#a1a1aa', font: { family: 'JetBrains Mono', size: 10 } }, title: { display: true, text: '%', color: '#a1a1aa', font: { family: 'JetBrains Mono' } }, min: 0, max: 100 }
+            }
+          }
+        });
+      }
+    });
+  });
+}
+
+function updateOTADeviceList() {
+  var select = document.getElementById('otaDeviceSelect');
+  var ids = Object.keys(sensors).filter(function(id) { return !!sensors[id].server; });
+  if (ids.length === 0) {
+    select.innerHTML = '<option value="">— connect a sensor first —</option>';
+  } else {
+    select.innerHTML = ids.map(function(id) {
+      var s = sensors[id];
+      var name = settings.names[id] || s.name;
+      var hasOta = s.otaChar ? '' : ' (no OTA)';
+      return '<option value="' + id + '">' + esc(name) + hasOta + '</option>';
+    }).join('');
+  }
+}
+
+function updateSensorNamesList() {
+  var list = document.getElementById('sensorNamesList');
+  // Show all known devices (connected + saved)
+  var activeIds = Object.keys(sensors);
+  var savedIds = Object.keys(knownDevices).filter(function(kid) { return activeIds.indexOf(kid) === -1; });
+  var allIds = activeIds.concat(savedIds);
+  if (allIds.length === 0) {
+    list.innerHTML = '<p class="text-zinc-500 text-xs font-mono">Connect sensors to assign friendly names.</p>';
+    return;
+  }
+  list.innerHTML = allIds.map(function(id) {
+    var s = sensors[id];
+    var devLabel = s ? (s.device ? s.device.name || id : id) : (knownDevices[id] ? knownDevices[id].deviceName : id);
+    var name = settings.names[id] || (s ? s.name : '') || '';
+    return '<div class="flex gap-3 items-center py-2">' +
+      '<span class="text-xs text-zinc-500 font-mono w-36 shrink-0 truncate">' + esc(devLabel) + '</span>' +
+      '<input type="text" value="' + esc(name) + '" placeholder="Friendly name" onchange="setSensorName(\'' + id + '\', this.value)" class="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 font-mono text-sm text-zinc-100 focus:border-amber-500 focus:outline-none">' +
+    '</div>';
+  }).join('');
+}
+
+function setSensorName(id, name) {
+  settings.names[id] = name;
+  if (sensors[id]) sensors[id].name = name;
+  saveSettings();
+  renderDashboard();
+  updateOTADeviceList();
+}
+
+function setPollRate(id, seconds) {
+  settings.pollRates[id] = parseInt(seconds);
+  sensorLastPolled[id] = 0; // reset so next tick picks it up immediately
+  saveSettings();
+  blePerf.add('POLL', 'Poll rate changed: ' + (settings.names[id] || id.substr(0, 8)) + ' → ' + seconds + 's', null);
+}
+
+function pollRateSelect(sensorId) {
+  var current = settings.pollRates[sensorId] || DEFAULT_POLL_RATE;
+  var html = '<select onchange="setPollRate(\'' + sensorId + '\', this.value)" class="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 font-mono text-xs text-zinc-400 focus:border-amber-500 focus:outline-none cursor-pointer">';
+  POLL_OPTIONS.forEach(function(opt) {
+    html += '<option value="' + opt.value + '"' + (opt.value === current ? ' selected' : '') + '>' + opt.label + '</option>';
+  });
+  html += '</select>';
+  return html;
+}
+
+/* ── OTA Firmware Flashing ── */
+function crc16modbus(buffer) {
+  var crc = 0xFFFF;
+  for (var i = 0; i < buffer.length; i++) {
+    crc ^= buffer[i];
+    for (var j = 0; j < 8; j++) {
+      var odd = crc & 1;
+      crc >>= 1;
+      if (odd) crc ^= 0xA001;
+    }
+  }
+  return crc;
+}
+
+var crc32 = (function() {
+  var table = new Uint32Array(256);
+  for (var i = 256; i--;) {
+    var tmp = i;
+    for (var k = 8; k--;) tmp = tmp & 1 ? 0xEDB88320 ^ tmp >>> 1 : tmp >>> 1;
+    table[i] = tmp;
+  }
+  return function(data) {
+    var crc = -1;
+    for (var i = 0; i < data.length; i++) crc = crc >>> 8 ^ table[crc & 255 ^ data[i]];
+    return (crc >>> 0);
+  };
+})();
+
+function validateFirmware(data) {
+  if (!data || data.byteLength < 0x20) return { valid: false, error: 'File too small' };
+  if (data.byteLength > MAX_EXT_OTA_SIZE) return { valid: false, error: 'File too large (' + (data.byteLength / 1024).toFixed(0) + ' KB, max ' + (MAX_EXT_OTA_SIZE / 1024) + ' KB)' };
+  var head = new DataView(data);
+  var magic = head.getUint32(0x08, true);
+  if (magic !== 0x544c4e4b) return { valid: false, error: 'Not a Telink firmware (missing TLNK header)' };
+  var hsize = head.getUint32(0x18, true);
+  if ((hsize & 0x0f) !== 4) return { valid: false, error: 'Invalid size pointer in header' };
+  if (hsize > data.byteLength) return { valid: false, error: 'Size in header exceeds file size' };
+  var calcCrc = crc32(new Uint8Array(data.slice(0, hsize - 4)));
+  var fileCrc = new DataView(data, hsize - 4, 4).getUint32(0, true);
+  if (calcCrc !== fileCrc) return { valid: false, error: 'CRC mismatch (calc: 0x' + calcCrc.toString(16) + ', file: 0x' + fileCrc.toString(16) + ')' };
+  return { valid: true, size: data.byteLength, hsize: hsize, calcCrc: calcCrc, fileCrc: fileCrc };
+}
+
+function handleFirmwareFile(file) {
+  var reader = new FileReader();
+  reader.onload = function() {
+    firmwareData = reader.result;
+    firmwareInfo = validateFirmware(firmwareData);
+    var info = document.getElementById('fwInfo');
+    info.classList.remove('hidden');
+
+    if (firmwareInfo.valid) {
+      info.innerHTML =
+        '<div class="flex justify-between"><span class="text-zinc-500">File</span><span class="text-zinc-300">' + esc(file.name) + '</span></div>' +
+        '<div class="flex justify-between"><span class="text-zinc-500">Size</span><span class="text-zinc-300">' + (firmwareInfo.size / 1024).toFixed(1) + ' KB</span></div>' +
+        '<div class="flex justify-between"><span class="text-zinc-500">CRC32</span><span class="text-zinc-300">0x' + firmwareInfo.calcCrc.toString(16).toUpperCase() + '</span></div>' +
+        '<div class="flex justify-between"><span class="text-zinc-500">Status</span><span class="text-green-400">Valid Telink firmware</span></div>';
+      document.getElementById('btnFlash').disabled = false;
+    } else {
+      info.innerHTML =
+        '<div class="flex justify-between"><span class="text-zinc-500">File</span><span class="text-zinc-300">' + esc(file.name) + '</span></div>' +
+        '<div class="flex justify-between"><span class="text-zinc-500">Size</span><span class="text-zinc-300">' + (file.size / 1024).toFixed(1) + ' KB</span></div>' +
+        '<div class="text-red-400 mt-1">' + esc(firmwareInfo.error) + '</div>';
+      document.getElementById('btnFlash').disabled = true;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function startOTA() {
+  var selectEl = document.getElementById('otaDeviceSelect');
+  var targetId = selectEl.value;
+  if (!targetId || !sensors[targetId]) { alert('Select a connected device.'); return; }
+  var s = sensors[targetId];
+  if (!s.otaChar) { alert('No OTA service on this device.'); return; }
+  if (!firmwareData || !firmwareInfo || !firmwareInfo.valid) { alert('Load a valid firmware file first.'); return; }
+  if (otaInProgress) return;
+  var name = settings.names[targetId] || s.name;
+  if (!confirm('Flash firmware to "' + name + '"?\n\nDo not disconnect during the process.')) return;
+
+  otaInProgress = true;
+  var btn = document.getElementById('btnFlash');
+  btn.disabled = true;
+  var progressBar = document.getElementById('otaProgress');
+  var progressFill = document.getElementById('otaProgressFill');
+  var statusEl = document.getElementById('otaStatus');
+  progressBar.classList.remove('hidden');
+  progressFill.style.width = '0%';
+  statusEl.className = 'text-center text-sm text-zinc-400 font-mono mb-4';
+
+  var fw = new Uint8Array(firmwareData);
+  var blockSize = 16;
+  var totalBlocks = Math.ceil(fw.length / blockSize);
+
+  try {
+    statusEl.textContent = 'Starting OTA...';
+    var otaChar = s.otaChar;
+    var otaStart = performance.now();
+    blePerf.add('OTA', 'OTA start: ' + (settings.names[targetId] || name), null, { blocks: totalBlocks, bytes: fw.length });
+
+    await bleTimed('OTA', 'OTA cmd 0x00ff (start)', function() {
+      return otaChar.writeValueWithoutResponse(new Uint8Array([0x00, 0xff]));
+    });
+    await delay(50);
+    await bleTimed('OTA', 'OTA cmd 0x01ff (begin)', function() {
+      return otaChar.writeValueWithoutResponse(new Uint8Array([0x01, 0xff]));
+    });
+    await delay(50);
+    statusEl.textContent = 'Flashing: 0 / ' + totalBlocks;
+
+    var batchStart = performance.now();
+    for (var blockNr = 0; blockNr < totalBlocks; blockNr++) {
+      var dataStart = blockNr * blockSize;
+      var dataEnd = Math.min(dataStart + blockSize, fw.length);
+      var blockData = fw.slice(dataStart, dataEnd);
+      var padded = new Uint8Array(blockSize);
+      padded.set(blockData);
+      var payload = new Uint8Array(2 + blockSize);
+      payload[0] = blockNr & 0xff;
+      payload[1] = (blockNr >> 8) & 0xff;
+      payload.set(padded, 2);
+      var crc = crc16modbus(payload);
+      var packet = new Uint8Array(payload.length + 2);
+      packet.set(payload);
+      packet[payload.length] = crc & 0xff;
+      packet[payload.length + 1] = (crc >> 8) & 0xff;
+      await otaChar.writeValueWithoutResponse(packet);
+
+      if ((blockNr & 7) === 7 || blockNr === totalBlocks - 1) {
+        var batchDur = performance.now() - batchStart;
+        var batchBlocks = Math.min(8, blockNr + 1);
+        var throughput = Math.round((batchBlocks * blockSize) / (batchDur / 1000));
+        try { await otaChar.readValue(); } catch (e) {}
+        var pct = Math.round(((blockNr + 1) / totalBlocks) * 100);
+        progressFill.style.width = pct + '%';
+        statusEl.textContent = 'Flashing: ' + (blockNr + 1) + ' / ' + totalBlocks + ' (' + pct + '%)';
+        blePerf.add('OTA', 'Batch ' + (blockNr + 1) + '/' + totalBlocks + ' (' + pct + '%)', batchDur, {
+          throughput: throughput + ' B/s'
+        });
+        batchStart = performance.now();
+      }
+    }
+
+    statusEl.textContent = 'Finalizing...';
+    var endPacket = new Uint8Array(6);
+    endPacket[0] = 0x02; endPacket[1] = 0xff;
+    var lastBlock = totalBlocks - 1;
+    endPacket[2] = lastBlock & 0xff;
+    endPacket[3] = (lastBlock >> 8) & 0xff;
+    var notLastBlock = (~lastBlock) & 0xffff;
+    endPacket[4] = notLastBlock & 0xff;
+    endPacket[5] = (notLastBlock >> 8) & 0xff;
+    await otaChar.writeValueWithoutResponse(endPacket);
+
+    progressFill.style.width = '100%';
+    statusEl.textContent = 'Firmware update complete! Device will restart.';
+    statusEl.className = 'text-center text-sm text-green-400 font-mono mb-4';
+    blePerf.add('OTA', 'OTA COMPLETE', performance.now() - otaStart, { bytes: fw.length, blocks: totalBlocks });
+  } catch (err) {
+    statusEl.textContent = 'OTA failed: ' + err.message;
+    statusEl.className = 'text-center text-sm text-red-400 font-mono mb-4';
+    blePerf.add('OTA', 'OTA FAILED: ' + err.message, performance.now() - otaStart);
+  } finally {
+    otaInProgress = false;
+    btn.disabled = false;
+  }
+}
+
+function delay(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+/* ── Tabs ── */
+document.querySelectorAll('.tab-btn').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.tab-btn').forEach(function(t) {
+      t.className = 'tab-btn flex-1 text-center py-2.5 rounded-lg font-mono text-xs font-bold transition-colors text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800';
+    });
+    tab.className = 'tab-btn flex-1 text-center py-2.5 rounded-lg font-mono text-xs font-bold transition-colors bg-amber-500 text-zinc-900';
+    document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.add('hidden'); });
+    document.getElementById('tab-' + tab.dataset.tab).classList.remove('hidden');
+    if (tab.dataset.tab === 'charts') renderCharts();
+    lucide.createIcons();
+  });
+});
+
+/* ── File Drop ── */
+var fileDrop = document.getElementById('fileDrop');
+var fwFileInput = document.getElementById('fwFile');
+fileDrop.addEventListener('click', function() { fwFileInput.click(); });
+fileDrop.addEventListener('dragover', function(e) { e.preventDefault(); fileDrop.classList.add('border-amber-500/50'); });
+fileDrop.addEventListener('dragleave', function() { fileDrop.classList.remove('border-amber-500/50'); });
+fileDrop.addEventListener('drop', function(e) {
+  e.preventDefault();
+  fileDrop.classList.remove('border-amber-500/50');
+  if (e.dataTransfer.files.length) handleFirmwareFile(e.dataTransfer.files[0]);
+});
+fwFileInput.addEventListener('change', function() {
+  if (fwFileInput.files.length) handleFirmwareFile(fwFileInput.files[0]);
+});
+
+/* ── Helpers ── */
+function esc(str) {
+  var d = document.createElement('div');
+  d.textContent = str || '';
+  return d.innerHTML;
+}
+
+function timeAgo(date) {
+  var s = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  return Math.floor(s / 3600) + 'h ago';
+}
+
+/* ── Auto-refresh ── */
+setInterval(renderDashboard, 5000);
+// Per-sensor polling: check every second, only poll sensors whose interval has elapsed
+setInterval(function() {
+  var now = Date.now();
+  Object.values(sensors).forEach(function(s) {
+    if (!s.customChar || !s.server) return;
+    var rate = (settings.pollRates[s.id] || DEFAULT_POLL_RATE) * 1000;
+    var last = sensorLastPolled[s.id] || 0;
+    if (now - last < rate) return;
+    sensorLastPolled[s.id] = now;
+    var label = settings.names[s.id] || s.name || s.id.substr(0, 8);
+    bleTimed('POLL', 'writeValue(0x33) ' + label, function() {
+      return s.customChar.writeValue(new Uint8Array([0x33, 0xC8]));
+    }).catch(function(e) {});
+  });
+}, 1000);
+setInterval(cleanOldData, 3600000);
+
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+/* ── PWA Install Prompt ── */
+var deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', function(e) {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  showInstallBanner();
+});
+
+function showInstallBanner() {
+  if (document.getElementById('installBanner')) return;
+  var banner = document.createElement('div');
+  banner.id = 'installBanner';
+  banner.className = 'fixed bottom-4 left-4 right-4 md:left-auto md:right-6 md:w-96 bg-zinc-900 border border-amber-500/50 rounded-lg p-4 shadow-lg shadow-amber-500/10 z-50 flex items-center gap-3';
+  banner.innerHTML =
+    '<div class="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">' +
+      '<i data-lucide="download" class="w-5 h-5 text-amber-500"></i>' +
+    '</div>' +
+    '<div class="flex-1 min-w-0">' +
+      '<div class="font-mono font-bold text-zinc-100 text-sm">Install FilaMon</div>' +
+      '<div class="text-xs text-zinc-500">Add to home screen for the best experience</div>' +
+    '</div>' +
+    '<button onclick="installPWA()" class="bg-amber-500 hover:bg-amber-400 text-zinc-900 font-mono font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0">Install</button>' +
+    '<button onclick="dismissInstall()" class="text-zinc-600 hover:text-zinc-400 transition-colors shrink-0 ml-1"><i data-lucide="x" class="w-4 h-4"></i></button>';
+  document.body.appendChild(banner);
+  lucide.createIcons();
+}
+
+async function installPWA() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  var result = await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  dismissInstall();
+}
+
+function dismissInstall() {
+  var banner = document.getElementById('installBanner');
+  if (banner) banner.remove();
+}
+
+/* ── Init ── */
+async function init() {
+  loadKnownDevices();
+  loadSettings();
+  await openDB();
+  cleanOldData();
+  requestNotificationPermission();
+  renderDashboard();
+  lucide.createIcons();
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function(e) {});
+  }
+  // Render saved devices — manual reconnect via per-card buttons
+  renderDashboard();
+}
+
+function openDebugPanel() {
+  var modal = document.getElementById('debugModal');
+  modal.classList.remove('hidden');
+  blePerf.renderPanel();
+  updateDebugConnSummary();
+  document.getElementById('debugLogCount').textContent = blePerf.log.length + ' entries';
+  lucide.createIcons();
+}
+function closeDebugPanel() {
+  document.getElementById('debugModal').classList.add('hidden');
+}
+function updateDebugConnSummary() {
+  var el = document.getElementById('debugConnSummary');
+  if (!el) return;
+  var ids = Object.keys(sensors);
+  if (ids.length === 0) { el.innerHTML = '<div class="text-zinc-600">No connections.</div>'; return; }
+  el.innerHTML = ids.map(function(id) {
+    var s = sensors[id];
+    var name = settings.names[id] || s.name || id.substr(0, 12);
+    var connected = s.server ? '<span class="text-green-400">connected</span>' : '<span class="text-red-400">disconnected</span>';
+    var svc = s.customChar ? 'ATC' : s.miTempChar ? 'Mi' : 'none';
+    var ota = s.otaChar ? 'yes' : 'no';
+    return '<div class="flex justify-between"><span class="text-zinc-400">' + esc(name) + '</span>' +
+      '<span>' + connected + ' | svc: ' + svc + ' | ota: ' + ota + '</span></div>';
+  }).join('');
+}
+function exportDebugLog() {
+  var lines = blePerf.log.map(function(e) {
+    var dur = e.ms !== null ? ' [' + e.ms.toFixed(1) + 'ms]' : '';
+    var ex = e.extra ? ' ' + JSON.stringify(e.extra) : '';
+    return e.t + ' [' + e.cat + '] ' + e.label + dur + ex;
+  });
+  // Add sensor stats
+  lines.push('', '=== NOTIFICATION RATES ===');
+  Object.keys(blePerf.sensorStats).forEach(function(sid) {
+    var r = blePerf.getSensorRate(sid);
+    if (!r) return;
+    var name = settings.names[sid] || (sensors[sid] ? sensors[sid].name : sid);
+    lines.push(name + ': ' + r.count + ' msgs, avg=' + r.avgMs + 'ms, min=' + r.minMs + 'ms, max=' + r.maxMs + 'ms');
+  });
+  var blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'filamon-ble-debug-' + new Date().toISOString().substr(0, 19).replace(/:/g, '') + '.txt';
+  a.click(); URL.revokeObjectURL(url);
+}
+
+function openAddSensorModal() {
+  document.getElementById('addSensorModal').classList.remove('hidden');
+  lucide.createIcons();
+}
+function closeAddSensorModal() {
+  document.getElementById('addSensorModal').classList.add('hidden');
+}
+function modalAutoPair() {
+  closeAddSensorModal();
+  autoPairATC();
+}
+function modalManualAdd() {
+  closeAddSensorModal();
+  scanAndConnect();
+}
+async function reconnectAllSaved() {
+  closeAddSensorModal();
+  var ids = Object.keys(knownDevices);
+  var pending = ids.filter(function(id) { return !sensors[id] || !sensors[id].server; });
+  if (pending.length === 0) { showAlert('All saved devices are already connected.'); return; }
+  var connected = 0;
+  blePerf.add('RECONN', 'Reconnect all: ' + pending.length + ' device(s)', null);
+  for (var i = 0; i < pending.length; i++) {
+    var devName = knownDevices[pending[i]].deviceName;
+    try {
+      var device = await navigator.bluetooth.requestDevice({
+        filters: [{ name: devName }],
+        optionalServices: BLE_OPTIONAL_SVCS
+      });
+      await connectDevice(device, false);
+      connected++;
+      showAlert('Connected ' + connected + '/' + pending.length + '. Select next in picker.');
+    } catch (err) {
+      if (err.name === 'NotFoundError') break; // user cancelled picker
+      blePerf.add('RECONN', 'Reconnect all skip: ' + devName + ' — ' + err.message, null);
+    }
+  }
+  if (connected > 0) showAlert('Reconnected ' + connected + ' device(s).');
+}
+
+init();
+</script>
+
+<!-- Add Sensor Modal -->
+<div id="addSensorModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeAddSensorModal()"></div>
+  <div class="relative bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-full max-w-sm shadow-2xl">
+    <div class="flex justify-between items-center mb-5">
+      <h2 class="font-mono font-bold text-zinc-100 text-lg">Add Sensor</h2>
+      <button onclick="closeAddSensorModal()" class="text-zinc-500 hover:text-zinc-300 transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+    <div class="space-y-3">
+      <button onclick="modalAutoPair()" class="w-full bg-amber-500 hover:bg-amber-400 text-zinc-900 font-mono font-bold px-4 py-3 rounded-lg transition-colors flex items-center gap-3">
+        <i data-lucide="bluetooth" class="w-5 h-5"></i>
+        <div class="text-left">
+          <div class="text-sm">Auto Pair ATC Sensors</div>
+          <div class="text-xs font-normal opacity-70">Scan for all nearby ATC_ devices</div>
+        </div>
+      </button>
+      <button onclick="modalManualAdd()" class="w-full bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-mono px-4 py-3 rounded-lg transition-colors flex items-center gap-3">
+        <i data-lucide="plus-circle" class="w-5 h-5"></i>
+        <div class="text-left">
+          <div class="text-sm font-bold">Pick Single ATC Sensor</div>
+          <div class="text-xs font-normal text-zinc-500">Select one ATC_ device from the picker</div>
+        </div>
+      </button>
+      <button onclick="reconnectAllSaved()" class="w-full bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-mono px-4 py-3 rounded-lg transition-colors flex items-center gap-3">
+        <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+        <div class="text-left">
+          <div class="text-sm font-bold">Reconnect All Saved</div>
+          <div class="text-xs font-normal text-zinc-500">Retry connecting all known devices</div>
+        </div>
+      </button>
+    </div>
+    <p class="text-xs text-zinc-600 font-mono mt-4 text-center">The browser's Bluetooth picker will appear after selecting an option.</p>
+  </div>
+</div>
+
+<!-- Forget Device Confirmation Modal -->
+<div id="forgetModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" data-device-id="">
+  <div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeForgetModal()"></div>
+  <div class="relative bg-zinc-900 border border-red-500/30 rounded-xl p-6 w-full max-w-sm shadow-2xl">
+    <div class="flex items-center gap-3 mb-4">
+      <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+        <i data-lucide="alert-triangle" class="w-5 h-5 text-red-400"></i>
+      </div>
+      <div>
+        <h2 class="font-mono font-bold text-zinc-100 text-lg">Forget Sensor</h2>
+        <div class="text-xs text-zinc-500 font-mono mt-0.5">This action cannot be undone</div>
+      </div>
+    </div>
+    <div class="bg-zinc-800/50 rounded-lg p-4 mb-4 border border-zinc-700">
+      <div class="font-mono font-bold text-zinc-200 text-sm" id="forgetDeviceName"></div>
+      <div class="text-xs text-zinc-500 font-mono mt-0.5" id="forgetDeviceId"></div>
+    </div>
+    <p class="text-sm text-zinc-400 mb-5">This will permanently remove the sensor and <span class="text-red-400 font-bold">delete all logged temperature and humidity history</span> associated with it.</p>
+    <div class="flex gap-3">
+      <button onclick="closeForgetModal()" class="flex-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-mono font-bold px-4 py-2.5 rounded-lg transition-colors text-sm">Cancel</button>
+      <button onclick="confirmForgetDevice()" class="flex-1 bg-red-500/20 hover:bg-red-500/40 text-red-400 font-mono font-bold px-4 py-2.5 rounded-lg transition-colors text-sm border border-red-500/30 hover:border-red-500/50">Forget</button>
+    </div>
+  </div>
+</div>
+
+<!-- Debug Log Modal -->
+<div id="debugModal" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeDebugPanel()"></div>
+  <div class="relative bg-zinc-900 border border-zinc-700 sm:rounded-xl rounded-t-xl w-full sm:max-w-3xl shadow-2xl flex flex-col" style="max-height:85vh">
+    <div class="flex justify-between items-center p-4 border-b border-zinc-800 shrink-0">
+      <div class="flex items-center gap-3">
+        <i data-lucide="terminal" class="w-5 h-5 text-amber-500"></i>
+        <h2 class="font-mono font-bold text-zinc-100 text-lg">BLE Debug Log</h2>
+        <span id="debugLogCount" class="text-xs text-zinc-500 font-mono">0 entries</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="blePerf.clear()" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors">Clear</button>
+        <button onclick="exportDebugLog()" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors">Export</button>
+        <button onclick="closeDebugPanel()" class="text-zinc-500 hover:text-zinc-300 transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+    </div>
+    <!-- Notification rates -->
+    <div class="px-4 py-3 border-b border-zinc-800 shrink-0">
+      <div class="text-xs font-mono text-amber-500 mb-1.5">NOTIFICATION RATES</div>
+      <div id="blePerfRates" class="text-xs font-mono space-y-0.5">
+        <div class="text-zinc-600">No notifications yet.</div>
+      </div>
+    </div>
+    <!-- Connection summary -->
+    <div class="px-4 py-3 border-b border-zinc-800 shrink-0">
+      <div class="text-xs font-mono text-amber-500 mb-1.5">ACTIVE CONNECTIONS</div>
+      <div id="debugConnSummary" class="text-xs font-mono space-y-0.5">
+        <div class="text-zinc-600">No connections.</div>
+      </div>
+    </div>
+    <!-- Log entries -->
+    <div class="px-4 py-3 overflow-y-auto flex-1 min-h-0">
+      <div class="text-xs font-mono text-amber-500 mb-1.5">EVENT LOG <span class="text-zinc-600">(newest first, color = latency)</span></div>
+      <div id="blePerfLog" class="text-xs font-mono space-y-0.5 leading-relaxed">
+        <div class="text-zinc-600">No BLE activity yet.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
