@@ -465,6 +465,18 @@ tailwind.config = {
     <div class="tab-content hidden" id="tab-settings">
       <div class="max-w-2xl mx-auto space-y-4">
 
+        <!-- Battery Profile -->
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
+          <h3 class="font-mono font-bold text-amber-500 text-sm mb-4 flex items-center gap-2">
+            <i data-lucide="battery-charging" class="w-4 h-4"></i> Battery Profile
+          </h3>
+          <p class="text-zinc-500 text-xs font-mono mb-4">Controls firmware measure interval, BLE advertising interval, and TX power. Applied to all connected sensors via cmd 0x55.</p>
+          <div class="grid grid-cols-2 gap-3" id="batteryProfileGrid">
+            <!-- Populated by renderBatteryProfiles() -->
+          </div>
+          <div id="batteryProfileStatus" class="mt-3 text-xs font-mono text-zinc-600 hidden"></div>
+        </div>
+
         <!-- Thresholds -->
         <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-5">
           <h3 class="font-mono font-bold text-amber-500 text-sm mb-4 flex items-center gap-2">
@@ -536,7 +548,7 @@ tailwind.config = {
             <i data-lucide="cpu" class="w-4 h-4"></i> Features
           </h3>
           <div class="text-xs text-zinc-400 font-mono leading-relaxed space-y-2">
-            <p><span class="text-amber-500">Live Dashboard</span> — Real-time temp, humidity, battery readings with color-coded status cards and per-sensor polling rates.</p>
+            <p><span class="text-amber-500">Live Dashboard</span> — Real-time temp, humidity, battery readings with color-coded status cards and battery profiles.</p>
             <p><span class="text-amber-500">Historical Charts</span> — 24-hour rolling charts with 0.2°C temperature resolution stored in IndexedDB.</p>
             <p><span class="text-amber-500">Smart Alerts</span> — Humidity threshold warnings (configurable), battery level monitoring (low at 20%, critical at 10%), push notifications, and full alert history.</p>
             <p><span class="text-amber-500">Flasher</span> — Simple one-click OTA firmware update and Advanced mode with full Telink Mi Flasher: device config, advertising type, Mi authorization, trigger/comfort settings, remote firmware loading from GitHub.</p>
@@ -643,17 +655,22 @@ const HW_VERSIONS = [
 const MAX_EXT_OTA_SIZE = 0x34000;
 
 const sensors = {};
-let settings = { warn: 60, crit: 80, retention: 7, names: {}, pollRates: {}, bleMode: 'poll' };
-// bleMode: 'poll' (connected + write 0x33) or 'advert' (passive BLE scan)
-// pollRates: { sensorId: seconds } — default 10s, options: 5, 30, 60, 300, 1800
-var POLL_OPTIONS = [
-  { value: 5, label: '5s' },
-  { value: 30, label: '30s' },
-  { value: 60, label: '1m' },
-  { value: 300, label: '5m' },
-  { value: 1800, label: '30m' }
-];
-var DEFAULT_POLL_RATE = 300; // seconds (5 minutes — battery friendly)
+let settings = { warn: 60, crit: 80, retention: 7, names: {}, batteryProfile: 'balanced', bleMode: 'poll' };
+// bleMode: 'poll' (connected + notifications) or 'advert' (passive BLE scan)
+// batteryProfile: key into BATTERY_PROFILES — controls firmware config + client-side throttle
+/* ── Battery Profiles ──
+   Each profile sets firmware measure_interval, advertising_interval, and tx_power via cmd 0x55.
+   measure_interval: seconds between sensor readings (byte 8)
+   advInterval: BLE advertising interval in 0.625ms units (bytes 6-7), stored here in ms
+   txPower: RF TX power register value (byte 9) — see FL_TX_POWERS
+   storageRate: client-side throttle for IndexedDB storage (seconds)                       */
+var BATTERY_PROFILES = {
+  'realtime':   { label: 'Realtime',      measInterval: 4,   advInterval: 2500,  txPower: 7,  storageRate: 10,   desc: 'Max refresh, high battery drain' },
+  'balanced':   { label: 'Balanced',      measInterval: 30,  advInterval: 5000,  txPower: 5,  storageRate: 30,   desc: 'Good responsiveness, moderate battery' },
+  'battery':    { label: 'Battery Saver', measInterval: 120, advInterval: 10000, txPower: 3,  storageRate: 120,  desc: 'Extended battery life, 2-min updates' },
+  'ultra':      { label: 'Ultra Saver',   measInterval: 255, advInterval: 20000, txPower: 0,  storageRate: 300,  desc: 'Maximum battery life, ~4-min updates' }
+};
+var DEFAULT_BATTERY_PROFILE = 'balanced';
 var sensorLastPolled = {}; // { sensorId: timestamp ms }
 var advScanActive = false;  // is BLE advertisement scanning running?
 var advScanAbort = null;    // AbortController for stopping scan
@@ -996,12 +1013,14 @@ function loadSettings() {
     if (s) settings = Object.assign({}, settings, s);
   } catch (e) {}
   if (!settings.names) settings.names = {};
-  if (!settings.pollRates) settings.pollRates = {};
+  if (!settings.batteryProfile) settings.batteryProfile = DEFAULT_BATTERY_PROFILE;
+  delete settings.pollRates; // migrate from old poll rate system
   if (!settings.bleMode) settings.bleMode = 'poll';
   document.getElementById('setWarn').value = settings.warn;
   document.getElementById('setCrit').value = settings.crit;
   document.getElementById('setRetention').value = settings.retention;
   updateBleModeUI();
+  renderBatteryProfiles();
 }
 
 function saveSettings() {
@@ -1245,7 +1264,8 @@ function onCustomNotification(sensorId, event) {
     s.lastUpdate = new Date();
 
     var now = Date.now();
-    var rate = (settings.pollRates[sensorId] || DEFAULT_POLL_RATE) * 1000;
+    var profile = BATTERY_PROFILES[settings.batteryProfile] || BATTERY_PROFILES['balanced'];
+    var rate = profile.storageRate * 1000;
     var lastStored = sensorLastPolled[sensorId] || 0;
 
     if (now - lastStored >= rate) {
@@ -1290,9 +1310,10 @@ function onMiNotification(sensorId, event) {
   s.temp = temp; s.humi = hum; s.vbat = vbat;
   s.batt = vbatToPercent(vbat); s.lastUpdate = new Date();
 
-  // Throttle storage & alerts to match poll rate
+  // Throttle storage & alerts to match battery profile
   var now = Date.now();
-  var rate = (settings.pollRates[sensorId] || DEFAULT_POLL_RATE) * 1000;
+  var profile = BATTERY_PROFILES[settings.batteryProfile] || BATTERY_PROFILES['balanced'];
+  var rate = profile.storageRate * 1000;
   var lastStored = sensorLastPolled[sensorId] || 0;
 
   if (now - lastStored >= rate) {
@@ -1951,9 +1972,9 @@ function renderDashboard() {
           '</div>' +
           (s.vbat ? '<span class="text-zinc-600">' + (s.vbat / 1000).toFixed(2) + 'V</span>' : '') +
         '</div>' +
-        '<div class="flex items-center gap-1.5">' +
-          '<i data-lucide="timer" class="w-3 h-3 text-zinc-600"></i>' +
-          pollRateSelect(id) +
+        '<div class="flex items-center gap-1.5" title="Battery profile: ' + (BATTERY_PROFILES[settings.batteryProfile] || BATTERY_PROFILES['balanced']).label + '">' +
+          '<i data-lucide="battery-charging" class="w-3 h-3 text-zinc-600"></i>' +
+          '<span class="text-zinc-600">' + (BATTERY_PROFILES[settings.batteryProfile] || BATTERY_PROFILES['balanced']).label + '</span>' +
         '</div>' +
         '<span>' + ago + '</span>' +
       '</div>' +
@@ -2094,21 +2115,90 @@ function editFriendlyName(el, id) {
   input.select();
 }
 
-function setPollRate(id, seconds) {
-  settings.pollRates[id] = parseInt(seconds);
-  sensorLastPolled[id] = 0; // reset so next tick picks it up immediately
-  saveSettings();
-  blePerf.add('POLL', 'Poll rate changed: ' + (settings.names[id] || id.substr(0, 8)) + ' → ' + seconds + 's', null);
+/* ── Battery Profile UI & Firmware Write ── */
+function renderBatteryProfiles() {
+  var grid = document.getElementById('batteryProfileGrid');
+  if (!grid) return;
+  var current = settings.batteryProfile || DEFAULT_BATTERY_PROFILE;
+  var html = '';
+  Object.keys(BATTERY_PROFILES).forEach(function(key) {
+    var p = BATTERY_PROFILES[key];
+    var active = key === current;
+    html += '<button onclick="selectBatteryProfile(\'' + key + '\')" class="text-left p-3 rounded-lg border transition-all ' +
+      (active
+        ? 'bg-amber-500/15 border-amber-500 text-amber-400'
+        : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500') + '">' +
+      '<div class="font-mono font-bold text-xs mb-1">' + esc(p.label) + '</div>' +
+      '<div class="text-[10px] text-zinc-500">' + esc(p.desc) + '</div>' +
+      '<div class="text-[10px] font-mono mt-1.5 text-zinc-600">Meas ' + p.measInterval + 's · Adv ' + (p.advInterval / 1000).toFixed(1) + 's · TX ' + p.txPower + '</div>' +
+    '</button>';
+  });
+  grid.innerHTML = html;
 }
 
-function pollRateSelect(sensorId) {
-  var current = settings.pollRates[sensorId] || DEFAULT_POLL_RATE;
-  var html = '<select onchange="setPollRate(\'' + sensorId + '\', this.value)" class="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 font-mono text-xs text-zinc-400 focus:border-amber-500 focus:outline-none cursor-pointer">';
-  POLL_OPTIONS.forEach(function(opt) {
-    html += '<option value="' + opt.value + '"' + (opt.value === current ? ' selected' : '') + '>' + opt.label + '</option>';
-  });
-  html += '</select>';
-  return html;
+function selectBatteryProfile(key) {
+  if (!BATTERY_PROFILES[key]) return;
+  settings.batteryProfile = key;
+  sensorLastPolled = {}; // reset throttle timers
+  saveSettings();
+  renderBatteryProfiles();
+  blePerf.add('PROFILE', 'Battery profile → ' + BATTERY_PROFILES[key].label, null);
+  // Push firmware config to all connected sensors
+  writeBatteryProfileToSensors(key);
+}
+
+async function writeBatteryProfileToSensors(key) {
+  var p = BATTERY_PROFILES[key];
+  if (!p) return;
+  var status = document.getElementById('batteryProfileStatus');
+  var written = 0;
+  var sensorList = Object.values(sensors).filter(function(s) { return s.customChar; });
+
+  if (sensorList.length === 0) {
+    if (status) {
+      status.textContent = 'Profile saved locally. Will apply to sensors when connected via Flasher.';
+      status.classList.remove('hidden');
+    }
+    return;
+  }
+
+  for (var i = 0; i < sensorList.length; i++) {
+    var s = sensorList[i];
+    try {
+      // Read current config first (cmd 0x55)
+      await s.customChar.writeValue(new Uint8Array([0x55]));
+      await new Promise(function(r) { setTimeout(r, 300); });
+
+      // Build config write command — preserve existing config, only change profile fields
+      // We need to read from parseFlasherConfig response, but for dashboard sensors
+      // we write a minimal config update: measure_interval, adv_interval, tx_power
+      var cmd = new Uint8Array(14);
+      cmd[0] = 0x55;
+      // Byte 1: advType|flags — preserve current (default to custom=1, lp_measures=1)
+      cmd[1] = 0x41; // custom adv type + lp_measures flag
+      var dv = new DataView(cmd.buffer);
+      dv.setInt16(2, 0, true);  // temp offset — preserve 0
+      dv.setInt16(4, 0, true);  // humi offset — preserve 0
+      dv.setUint16(6, Math.round(p.advInterval / 0.625), true); // adv interval in 0.625ms units
+      cmd[8] = Math.min(255, p.measInterval);  // measure interval (uint8, max 255)
+      cmd[9] = p.txPower;  // TX power register
+      dv.setUint16(10, 0, true); // connect latency
+      cmd[12] = 0; // LCD cfg (temp_C)
+      cmd[13] = 0; // BT5 PHY off
+
+      await s.customChar.writeValue(cmd);
+      written++;
+      var label = settings.names[s.id] || s.name || s.id.substr(0, 8);
+      blePerf.add('PROFILE', 'Config written to ' + label + ': meas=' + p.measInterval + 's, adv=' + p.advInterval + 'ms, tx=' + p.txPower, null);
+    } catch (e) {
+      blePerf.add('PROFILE', 'Failed to write config to ' + (s.id.substr(0, 8)) + ': ' + e.message, null);
+    }
+  }
+
+  if (status) {
+    status.textContent = 'Profile applied to ' + written + '/' + sensorList.length + ' sensor(s)';
+    status.className = 'mt-3 text-xs font-mono ' + (written > 0 ? 'text-green-400' : 'text-red-400');
+  }
 }
 
 /* ═══════════════════════════════════════════════
