@@ -945,7 +945,7 @@ function renderDashboard() {
       return '<div class="group bg-zinc-900 border border-zinc-800 rounded-lg p-5 opacity-60 hover:opacity-100 transition-all duration-300">' +
         '<div class="flex justify-between items-start mb-4">' +
           '<div>' +
-            '<div class="font-mono font-bold text-zinc-400">' + esc(name) + '</div>' +
+            '<div class="font-mono font-bold text-zinc-400 cursor-pointer hover:text-amber-400 transition-colors" ondblclick="editFriendlyName(this,\'' + id + '\')" title="Double-click to rename">' + esc(name) + '</div>' +
             '<div class="text-xs text-zinc-600 font-mono mt-0.5">' + esc(devName) + '</div>' +
           '</div>' +
           '<span class="text-xs px-2 py-0.5 bg-zinc-800 text-zinc-500 rounded font-mono">SAVED</span>' +
@@ -983,7 +983,7 @@ function renderDashboard() {
     return '<div class="group bg-zinc-900 border ' + borderClass + ' rounded-lg p-5 hover:border-amber-500/50 hover:shadow-lg hover:shadow-amber-500/10 hover:-translate-y-1 transition-all duration-300">' +
       '<div class="flex justify-between items-start mb-4">' +
         '<div>' +
-          '<div class="font-mono font-bold text-zinc-100">' + esc(name) + '</div>' +
+          '<div class="font-mono font-bold text-zinc-100 cursor-pointer hover:text-amber-400 transition-colors" ondblclick="editFriendlyName(this,\'' + id + '\')" title="Double-click to rename">' + esc(name) + '</div>' +
           '<div class="text-xs text-zinc-500 font-mono mt-0.5">' + esc(s.device ? s.device.name || id : id) + (s.hwName ? ' &middot; ' + esc(s.hwName) : '') + '</div>' +
         '</div>' +
         (connected
@@ -1126,6 +1126,31 @@ function setSensorName(id, name) {
   saveSettings();
   renderDashboard();
   updateOTADeviceList();
+}
+
+function editFriendlyName(el, id) {
+  if (el.querySelector('input')) return; // already editing
+  var current = settings.names[id] || '';
+  var bleName = (sensors[id] ? sensors[id].device ? sensors[id].device.name : '' : '') || (knownDevices[id] ? knownDevices[id].deviceName : '') || id;
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.value = current;
+  input.placeholder = bleName;
+  input.className = 'bg-zinc-800 border border-amber-500 rounded px-2 py-0.5 font-mono font-bold text-zinc-100 text-sm w-full focus:outline-none';
+  input.style.minWidth = '0';
+  function commit() {
+    var val = input.value.trim();
+    setSensorName(id, val || bleName);
+  }
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { e.preventDefault(); input.value = current; input.blur(); }
+  });
+  el.textContent = '';
+  el.appendChild(input);
+  input.focus();
+  input.select();
 }
 
 function setPollRate(id, seconds) {
