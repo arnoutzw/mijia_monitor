@@ -2293,6 +2293,27 @@ function onFlasherNotification(event) {
     if (len >= 12) {
       parseFlasherConfig(value);
     }
+  } else if (cmd === 0x44) {
+    // Bind key response: 0x44 + 12 bytes (key may be 16 bytes if len >= 17, or partial)
+    // Format: [0x44][key bytes...] — typically 12-16 bytes of key data
+    var keyLen = len - 1;
+    if (keyLen > 0) {
+      var keyHex = '';
+      for (var ki = 1; ki < len; ki++) {
+        keyHex += ('0' + value.getUint8(ki).toString(16)).slice(-2);
+      }
+      document.getElementById('flMiBindKey').value = keyHex.toUpperCase();
+      flLogMsg('Bind key received (' + keyLen + ' bytes): ' + keyHex.toUpperCase(), 'success');
+    } else {
+      flLogMsg('Bind key response empty — device may not have a key set', 'warn');
+    }
+  } else if (cmd === 0x45) {
+    // Set bind key response
+    if (len >= 2 && value.getUint8(1) === 0x00) {
+      flLogMsg('Bind key written successfully', 'success');
+    } else {
+      flLogMsg('Bind key write response: status=' + (len >= 2 ? value.getUint8(1) : '?'), 'info');
+    }
   } else if (cmd === 0x35) {
     // Trigger config response
     if (len >= 12) {
@@ -2303,8 +2324,22 @@ function onFlasherNotification(event) {
     if (len >= 9) {
       parseComfortConfig(value);
     }
+  } else if (cmd === 0x56) {
+    // Set name response
+    flLogMsg('Device name set — device will advertise with new name after restart', 'success');
+  } else if (cmd === 0x57) {
+    // Set MAC response
+    flLogMsg('MAC address set — device will restart', 'success');
+  } else if (cmd === 0x70) {
+    // Set pin code response
+    flLogMsg('Pin code updated', 'success');
   } else {
-    flLogMsg('Notification cmd=0x' + cmd.toString(16) + ' len=' + len);
+    // Log unknown commands for debugging
+    var hexDump = '';
+    for (var hi = 0; hi < Math.min(len, 20); hi++) {
+      hexDump += ('0' + value.getUint8(hi).toString(16)).slice(-2) + ' ';
+    }
+    flLogMsg('Notification cmd=0x' + cmd.toString(16) + ' len=' + len + ' data: ' + hexDump.trim(), 'info');
   }
 }
 
