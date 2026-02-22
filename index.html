@@ -2122,7 +2122,10 @@ function updateConnectionStatus(status) {
   else dot.className += 'bg-red-500 ring-red-500/30';
 }
 
+var _editingTileName = false; // guard: skip re-render while inline-editing a tile name
+
 function renderDashboard() {
+  if (_editingTileName) return; // don't nuke the inline input while user is typing
   var grid = document.getElementById('sensorGrid');
   var panel = document.getElementById('connectPanel');
 
@@ -2364,8 +2367,10 @@ function editFriendlyName(el, id) {
   input.placeholder = bleName;
   input.className = 'bg-zinc-800 border border-amber-500 rounded px-2 py-0.5 font-mono font-bold text-zinc-100 text-sm w-full focus:outline-none';
   input.style.minWidth = '0';
+  _editingTileName = true; // block renderDashboard while typing
   function commit() {
     var val = input.value.trim();
+    _editingTileName = false; // allow re-renders again
     setSensorName(id, val || bleName);
   }
   input.addEventListener('blur', commit);
