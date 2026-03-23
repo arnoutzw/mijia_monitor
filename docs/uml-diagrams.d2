@@ -1,0 +1,468 @@
+# FSCMS — Filament Storage Climate Monitoring System (Mijia Monitor)
+# Web Bluetooth app for Xiaomi Mijia LYWSD03MMC temperature/humidity sensors
+# Supports ATC custom firmware, OTA flashing, multi-sensor management
+
+# ============================================================
+# CLASSES
+# ============================================================
+class-diagram: {
+  label: "Class Diagram"
+
+  SensorState: SensorState {
+    shape: class
+    id: string
+    name: string
+    device: BluetoothDevice
+    server: BluetoothRemoteGATTServer
+    customChar: BluetoothRemoteGATTCharacteristic
+    temp: number
+    humi: number
+    batt: number
+    voltage: number
+    rssi: number
+    lastUpdate: timestamp
+    chart: "Chart.js instance"
+    firmwareVersion: string
+    hwType: string
+  }
+
+  Settings: Settings {
+    shape: class
+    warn: int
+    crit: int
+    retention: int
+    names: "Map<string,string>"
+    batteryProfile: string
+    bleMode: string
+    tileSort: string
+    deviceSettings: "Map<string, DeviceSetting>"
+
+    loadSettings()
+    saveSettings()
+    getDeviceSetting(id, key)
+    setDeviceSetting(id, key, val)
+  }
+
+  DeviceSetting: DeviceSetting {
+    shape: class
+    humiWarn: int
+    humiCrit: int
+    tempWarn: number
+    tempCrit: number
+    batteryProfile: string
+  }
+
+  BatteryProfile: BatteryProfile {
+    shape: class
+    field_label: string
+    measInterval: int
+    advInterval: int
+    txPower: int
+    storageRate: int
+    desc: string
+  }
+
+  BLEPerf: "BLE Performance Logger" {
+    shape: class
+    log: "Entry[]"
+    maxEntries: "500"
+    sensorStats: "Map<string, SensorStat>"
+
+    add(category, label, ms, extra)
+    trackNotification(sensorId)
+    getSensorRate(sensorId)
+    clear()
+    renderPanel()
+  }
+
+  IndexedDB: "FilaMonDB (IndexedDB)" {
+    shape: class
+
+    openDB()
+    storeReading(id, temp, humi, batt)
+    storeFrame(id, source, raw, temp, humi, V, batt)
+    getHistory(id, hours)
+    cleanOldData()
+    exportFramesCSV()
+    exportHistoryCSV()
+  }
+
+  KnownDevices: "Known Devices Store" {
+    shape: class
+    devices: "Map<string, {name, lastSeen}>"
+
+    loadKnownDevices()
+    saveKnownDevice(id, name)
+    showForgetConfirm(id)
+    confirmForgetDevice()
+  }
+
+  ConnectionManager: ConnectionManager {
+    shape: class
+    sensors: "Map<string, SensorState>"
+    batchReconnectActive: boolean
+    advScanActive: boolean
+    advScanAbort: AbortController
+
+    openAddSensorModal()
+    connectDevice(device, isReconnect)
+    batchReconnect()
+    cancelBatchReconnect()
+    startAdvertScan()
+    stopAdvertScan()
+    pollSensor(sensorId)
+  }
+
+  OTAFlasher: "OTA Flasher" {
+    shape: class
+    firmwareData: Uint8Array
+    firmwareInfo: object
+    otaInProgress: boolean
+
+    startOTA()
+    flasherConnect()
+    flasherDisconnect()
+    flasherReadConfig()
+    flasherWriteConfig()
+    flasherStartOTA()
+    flasherLoadRemoteFw()
+    flasherMiActivate()
+    flasherSetDevName()
+  }
+
+  AlertManager: AlertManager {
+    shape: class
+    alertHistory: "Alert[]"
+    alertUnread: int
+    alertCooldowns: "Map<string, timestamp>"
+    battLowCount: "Map<string, int>"
+
+    checkAlerts(sensorId, temp, humi, batt)
+    showAlert(msg, type)
+    openAlertHistory()
+    sendPushNotification(title, body)
+  }
+
+  UIRenderer: UIRenderer {
+    shape: class
+
+    renderDashboard()
+    renderSensorTile(id)
+    renderCharts()
+    updateConnectionStatus(status)
+    updateSensorNamesList()
+    updateOTADeviceList()
+    setTileSort(mode)
+  }
+
+  PROFILES: "Battery Profiles (4)" {
+    shape: class
+    realtime: "4s measure, 2.5s adv"
+    balanced: "30s measure, 5s adv"
+    battery: "120s measure, 10s adv"
+    ultra: "255s measure, 20s adv"
+  }
+
+  # Relationships
+  ConnectionManager -> SensorState: "manages 0..N"
+  ConnectionManager -> KnownDevices: "persists"
+  ConnectionManager -> BLEPerf: "logs performance"
+  SensorState -> IndexedDB: "stores readings"
+  AlertManager -> SensorState: "monitors thresholds"
+  OTAFlasher -> SensorState: "targets device"
+  UIRenderer -> SensorState: "renders tiles"
+  UIRenderer -> IndexedDB: "loads chart data"
+  Settings -> BatteryProfile: "selects profile"
+  Settings -> DeviceSetting: "per-device overrides"
+}
+
+# ============================================================
+# SEQUENCE: MAIN — Sensor Pairing and Data Collection (Poll Mode)
+# ============================================================
+seq-main: "BLE Sensor Pairing and Data Collection (Poll Mode)" {
+  shape: sequence_diagram
+
+  user: User
+  app: "FSCMS App"
+  bt: "Web Bluetooth API"
+  browser: "BLE Picker"
+  gatt: "GATT Server"
+  custom-svc: "Custom Service (0x1f10)"
+  custom-char: "Custom Char (0x1f1f)"
+  mi-svc: "Mi Service (ebe0ccb0)"
+  mi-char: "Mi Temp Char (ebe0ccc1)"
+  sensor: "Mijia Sensor (ATC FW)"
+  idb: "IndexedDB"
+  perf: "BLE Perf Logger"
+
+  # Add sensor
+  user -> app: "Click 'Add Sensor'"
+  app -> app: "openAddSensorModal()"
+  user -> app: "Click 'Pair ATC Sensor'"
+  app -> perf: "add('SCAN', 'requestDevice start')"
+  app -> bt: "requestDevice({filters: [{name: 'ATC_*'}], optionalServices: [...]})"
+  bt -> browser: "Show BLE device picker"
+  browser -> user: "Select sensor"
+  user -> browser: "Choose ATC_AABBCC"
+  browser -> bt: "BluetoothDevice"
+  bt -> app: "device (name, id)"
+  app -> perf: "add('SCAN', 'Device selected', duration)"
+
+  # GATT connect
+  app -> perf: "add('CONN', 'gatt.connect start')"
+  app -> gatt: "device.gatt.connect()"
+  gatt -> app: "BluetoothRemoteGATTServer"
+  app -> perf: "add('CONN', 'gatt.connect OK', duration)"
+  app -> app: "saveKnownDevice(id, name)"
+
+  # Discover services
+  app -> custom-svc: "getPrimaryService(0x1f10)"
+  custom-svc -> app: "Custom service found"
+  app -> custom-char: "getCharacteristic(0x1f1f)"
+  custom-char -> app: "Custom characteristic"
+  app -> custom-char: "startNotifications()"
+  custom-char -> app: "Notifications enabled"
+  app -> custom-char: "addEventListener('characteristicvaluechanged')"
+
+  # Receive data notification
+  sensor -> custom-char: "16-byte payload (temp, humi, batt, voltage)"
+  custom-char -> app: "onNotification event"
+  app -> perf: "trackNotification(sensorId)"
+  app -> app: "Parse: temp/100, humi/100, batt%, voltage mV"
+  app -> app: "Update sensor tile in dashboard"
+  app -> idb: "storeReading(id, temp, humi, batt)"
+  app -> idb: "storeFrame(id, 'custom_0x33', raw, ...)"
+  app -> app: "checkAlerts(id, temp, humi, batt)"
+
+  # Apply battery profile
+  app -> custom-char: "Write cmd 0x55 (battery profile config)"
+  custom-char -> sensor: "Set measure interval, adv interval, TX power"
+
+  # Continuous polling
+  app -> app: "Schedule next poll based on batteryProfile.storageRate"
+  sensor -> custom-char: "Next notification (periodic)"
+  custom-char -> app: "onNotification()"
+  app -> idb: "storeReading() + storeFrame()"
+  app -> app: "renderDashboard() (repeat)"
+}
+
+# ============================================================
+# SEQUENCE: SECONDARY — Batch Reconnect and OTA Firmware Flash
+# ============================================================
+seq-secondary: "Batch Reconnect and OTA Firmware Flash" {
+  shape: sequence_diagram
+
+  user: User
+  app: "FSCMS App"
+  bt: "Web Bluetooth API"
+  perf: "BLE Perf Logger"
+  sensor1: "Sensor 1 (saved)"
+  sensor2: "Sensor 2 (saved)"
+  ota-svc: "OTA Service"
+  ota-char: "OTA Characteristic"
+  sensor: "Target Sensor"
+
+  # Batch reconnect
+  user -> app: "Click 'Reconnect All'"
+  app -> perf: "add('RECONN', 'Batch start')"
+  app -> bt: "getDevices() — all previously paired"
+  bt -> app: "Array of BluetoothDevice"
+  app -> app: "Filter: known + disconnected"
+  app -> app: "Show: 'Connecting 1/N: SensorName...'"
+
+  # Sequential reconnect with delay
+  app -> sensor1: "connectDevice(dev1, isReconnect=true)"
+  app -> sensor1: "gatt.connect() -> service -> notifications"
+  sensor1 -> app: "Connected OK"
+  app -> perf: "add('RECONN', 'Batch OK: Sensor1')"
+  app -> app: "delay(2000ms) — BLE cooldown"
+
+  app -> sensor2: "connectDevice(dev2, isReconnect=true)"
+  app -> sensor2: "gatt.connect() -> service -> notifications"
+  sensor2 -> app: "Connected OK"
+  app -> perf: "add('RECONN', 'Batch complete', total_duration)"
+  app -> app: "renderDashboard()"
+
+  # OTA Firmware Flash (Simple mode)
+  user -> app: "Switch to Flasher tab"
+  user -> app: "Select target device from dropdown"
+  user -> app: "Drop .bin firmware file"
+  app -> app: "Validate firmware size (<= 0x34000)"
+  app -> app: "Show firmware info (size, name)"
+  user -> app: "Click 'Flash Firmware'"
+  app -> app: "otaInProgress = true"
+
+  # OTA process
+  app -> ota-svc: "getPrimaryService(OTA_SVC_UUID)"
+  ota-svc -> app: "OTA service"
+  app -> ota-char: "getCharacteristic(OTA_CHAR_UUID)"
+  ota-char -> app: "OTA characteristic"
+  app -> ota-char: "Write start command (0x00 + size)"
+  ota-char -> sensor: "Prepare for OTA"
+
+  # Chunk transfer
+  app -> ota-char: "Write chunk 1 (16 bytes)"
+  ota-char -> sensor: "Flash chunk 1"
+  app -> app: "Update progress bar"
+  app -> ota-char: "Write chunk 2"
+  app -> ota-char: "... (repeat for all chunks)"
+  app -> app: "Progress: 100%"
+  app -> ota-char: "Write end command"
+  ota-char -> sensor: "Finalize OTA, reboot"
+  app -> app: "otaInProgress = false"
+  app -> app: "Show 'Flash complete!'"
+}
+
+# ============================================================
+# ARCHITECTURE
+# ============================================================
+architecture: "System Architecture" {
+  browser: "Chrome / Edge (Desktop or Android)" {
+    shape: cloud
+
+    pwa: "PWA Shell" {
+      sw: "Service Worker"
+      manifest: "manifest.json"
+    }
+
+    ui: "User Interface" {
+      header: "Header (status dot, BLE mode toggle, alerts, reconnect, add sensor)"
+      tabs: "Tab Bar" {
+        dashboard: "Dashboard Tab" {
+          sort-controls: "Sort (A-Z / Recent) + Battery Profile"
+          sensor-grid: "Sensor Tile Grid"
+          connect-panel: "No Sensors Connected CTA"
+        }
+        charts: "Charts Tab (historical graphs)"
+        flasher: "Flasher Tab" {
+          simple: "Simple Mode (one-click OTA)"
+          advanced: "Advanced Mode (config, Mi auth, triggers, comfort params)"
+        }
+        settings: "Settings Tab (thresholds, names, data mgmt)"
+        about: "About Tab"
+      }
+    }
+
+    logic: "Application Logic" {
+      conn-mgr: "Connection Manager"
+      alert-mgr: "Alert Manager"
+      ble-perf: "BLE Performance Logger"
+      ota: "OTA Flasher (Telink)"
+      parser: "ATC / Mi / Custom Protocol Parser"
+      profiles: "Battery Profiles (4 modes)"
+      theme: "BSI Theme Bridge"
+    }
+
+    storage: "Local Storage" {
+      idb: "IndexedDB (FilaMonDB)" {
+        shape: cylinder
+        history: "history store (sensor, time, temp, humi, batt)"
+        frames: "frames store (sensor, time, source, raw, values)"
+      }
+      ls: "localStorage" {
+        settings-store: "filamon_settings"
+        devices-store: "filamon_devices"
+      }
+    }
+  }
+
+  ble: "Web Bluetooth API" {
+    shape: hexagon
+  }
+
+  sensors: "Mijia Sensors (ATC Firmware)" {
+    shape: rectangle
+    s1: "LYWSD03MMC #1" {
+      mcu: "Telink MCU"
+      ble-radio: "BLE 4.2 Radio"
+      temp-sensor: "Temp + Humidity IC"
+      lcd: "LCD Display"
+    }
+    s2: "LYWSD03MMC #2"
+    s3: "MHO-C401"
+    sN: "... up to N sensors"
+  }
+
+  cdn: "CDN Dependencies" {
+    shape: cylinder
+    tailwind: "Tailwind CSS"
+    chartjs: "Chart.js v4.4"
+    lucide: "Lucide Icons"
+  }
+
+  github: "GitHub (pvvx)" {
+    shape: cloud
+    firmware: "ATC_MiThermometer releases (.bin)"
+  }
+
+  browser.logic.conn-mgr -> ble: "GATT + Notifications"
+  browser.logic.ota -> ble: "OTA write"
+  ble -> sensors.s1.ble-radio: "BLE 4.2"
+  ble -> sensors.s2: "BLE 4.2"
+  ble -> sensors.s3: "BLE 4.2"
+  browser.logic.ota -> github: "Fetch remote firmware"
+  browser.logic -> cdn: "CDN imports"
+  browser.logic.conn-mgr -> browser.storage.idb: "Store readings"
+  browser.logic.conn-mgr -> browser.storage.ls: "Persist settings + devices"
+}
+
+# ============================================================
+# STATES — Sensor Connection State Machine
+# ============================================================
+states: "Sensor Connection State Machine" {
+  unknown: "Unknown\n(No sensor added)" {
+    style.fill: "#27272a"
+  }
+  scanning: "Scanning\n(BLE device picker)" {
+    style.fill: "#3f3f46"
+  }
+  pairing: "Pairing\n(GATT connect + service discovery)" {
+    style.fill: "#fbbf24"
+    style.font-color: "#000"
+  }
+  connected_idle: "Connected (Idle)\n(Notifications active, awaiting data)" {
+    style.fill: "#4ade80"
+    style.font-color: "#000"
+  }
+  streaming: "Streaming\n(Receiving temp/humi/batt)" {
+    style.fill: "#22c55e"
+    style.font-color: "#000"
+  }
+  configuring: "Configuring\n(Writing battery profile / config)" {
+    style.fill: "#60a5fa"
+    style.font-color: "#000"
+  }
+  ota_flashing: "OTA Flashing\n(Firmware update in progress)" {
+    style.fill: "#f59e0b"
+    style.font-color: "#000"
+  }
+  disconnected: "Disconnected\n(Link lost, saved in knownDevices)" {
+    style.fill: "#f87171"
+    style.font-color: "#000"
+  }
+  reconnecting: "Reconnecting\n(Batch or auto reconnect)" {
+    style.fill: "#fb923c"
+    style.font-color: "#000"
+  }
+  forgotten: "Forgotten\n(Removed from knownDevices)" {
+    style.fill: "#18181b"
+    style.font-color: "#71717a"
+  }
+
+  unknown -> scanning: "Click 'Add Sensor'"
+  scanning -> pairing: "Device selected"
+  scanning -> unknown: "User cancelled"
+  pairing -> connected_idle: "GATT + notifications OK"
+  pairing -> disconnected: "Connection failed"
+  connected_idle -> streaming: "First notification received"
+  streaming -> configuring: "Apply battery profile (cmd 0x55)"
+  configuring -> streaming: "Config written OK"
+  streaming -> ota_flashing: "User starts OTA flash"
+  ota_flashing -> disconnected: "OTA complete (device reboots)"
+  streaming -> disconnected: "BLE link lost"
+  disconnected -> reconnecting: "Batch reconnect / page reload"
+  reconnecting -> pairing: "gatt.connect()"
+  reconnecting -> disconnected: "Reconnect failed"
+  disconnected -> forgotten: "User clicks 'Forget Device'"
+  streaming -> disconnected: "User disconnects"
+}
