@@ -12,7 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://unpkg.com/lucide@0.460.0"></script>
 <script>
 tailwind.config = {
   theme: {
@@ -647,6 +647,22 @@ tailwind.config = {
 /* ═══════════════════════════════════════════════
    FSCMS v2.0 — Filament Storage Climate Monitoring System
    ═══════════════════════════════════════════════ */
+
+// BSI Origin Validation
+const ALLOWED_ORIGINS = ['https://blacksphereindustries.nl', 'https://www.blacksphereindustries.nl'];
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+  ALLOWED_ORIGINS.push('http://localhost:8080');
+}
+function isAllowedOrigin(origin) { return ALLOWED_ORIGINS.includes(origin) || origin.endsWith('.pages.dev'); }
+
+// postMessage handler for portal theme bridge
+window.addEventListener('message', function(e) {
+  if (!isAllowedOrigin(e.origin)) return;
+  // Theme messages can be handled here when theme bridge is added
+});
+if (window.parent !== window) {
+  try { window.parent.postMessage({ type: 'theme-request' }, '*'); } catch(e) {}
+}
 
 const UUID_CUSTOM_SVC   = '00001f10-0000-1000-8000-00805f9b34fb';
 const UUID_CUSTOM_CHAR  = '00001f1f-0000-1000-8000-00805f9b34fb';
@@ -3172,6 +3188,10 @@ async function flasherMiActivate() {
 
 /* ── Remote Firmware Loading ── */
 async function flasherLoadRemoteFw() {
+  // SECURITY NOTE: Remote firmware is fetched over HTTPS from pvvx GitHub Pages.
+  // TODO: Implement firmware signature verification (Ed25519) to ensure firmware
+  // integrity and authenticity before allowing OTA flash. Currently relies on
+  // HTTPS transport security and user confirmation only.
   flLogMsg('Loading firmware list from GitHub...', 'info');
   try {
     var resp = await fetch('https://pvvx.github.io/ATC_MiThermometer/firmware.json');
@@ -3258,7 +3278,9 @@ async function flasherStartOTA() {
   if (otaInProgress) return;
 
   var devName = flDevice ? (flDevice.name || 'device') : 'device';
-  if (!confirm('Flash firmware to "' + devName + '"?\n\nDo not disconnect during the process.')) return;
+  // WARNING: No firmware signature verification is implemented.
+  // TODO: Add Ed25519 signature verification for firmware images before flashing.
+  if (!confirm('\u26a0\ufe0f FIRMWARE UPDATE WARNING\n\nYou are about to flash firmware to "' + devName + '". This cannot be undone.\n\nOnly proceed if you downloaded the firmware from a trusted source.\n\nDo not disconnect during the process.\n\nContinue?')) return;
 
   otaInProgress = true;
   document.getElementById('btnFlAdvFlash').disabled = true;
@@ -3411,7 +3433,9 @@ async function startOTA() {
   if (!firmwareData || !firmwareInfo || !firmwareInfo.valid) { alert('Load a valid firmware file first.'); return; }
   if (otaInProgress) return;
   var name = settings.names[targetId] || s.name;
-  if (!confirm('Flash firmware to "' + name + '"?\n\nDo not disconnect during the process.')) return;
+  // WARNING: No firmware signature verification is implemented.
+  // TODO: Add Ed25519 signature verification for firmware images before flashing.
+  if (!confirm('\u26a0\ufe0f FIRMWARE UPDATE WARNING\n\nYou are about to flash firmware to "' + name + '". This cannot be undone.\n\nOnly proceed if you downloaded the firmware from a trusted source.\n\nDo not disconnect during the process.\n\nContinue?')) return;
 
   otaInProgress = true;
   var btn = document.getElementById('btnFlash');

@@ -8,7 +8,7 @@ const ASSETS = [
   'https://cdn.tailwindcss.com',
   'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
   'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js',
-  'https://unpkg.com/lucide@latest'
+  'https://unpkg.com/lucide@0.460.0'
 ];
 
 self.addEventListener('install', (event) => {
