@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#09090b">
+<meta name="theme-color" content="#09090b" id="meta-theme-color">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>FSCMS — Filament Storage Climate Monitoring System</title>
 <link rel="manifest" href="manifest.json">
@@ -26,11 +26,96 @@ tailwind.config = {
 }
 </script>
 <style>
+:root {
+  color-scheme: dark;
+  --app-bg: #09090b;
+  --app-surface: #18181b;
+  --app-surface-2: #27272a;
+  --app-surface-3: #3f3f46;
+  --app-border: #3f3f46;
+  --app-text: #d4d4d8;
+  --app-text-strong: #f4f4f5;
+  --app-muted: #71717a;
+  --app-accent: #f59e0b;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --app-bg: #f8fafc;
+  --app-surface: #ffffff;
+  --app-surface-2: #eef2f7;
+  --app-surface-3: #dbe4ef;
+  --app-border: #cbd5e1;
+  --app-text: #334155;
+  --app-text-strong: #0f172a;
+  --app-muted: #64748b;
+}
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #18181b; }
-::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #52525b; }
+::-webkit-scrollbar-track { background: var(--app-surface); }
+::-webkit-scrollbar-thumb { background: var(--app-border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--app-surface-3); }
 .chart-wrap { position: relative; height: 250px; }
+
+html[data-theme="light"] body.bg-zinc-950,
+html[data-theme="light"] .bg-zinc-950 {
+  background-color: var(--app-bg) !important;
+}
+
+html[data-theme="light"] .bg-zinc-900,
+html[data-theme="light"] .bg-zinc-900\/80 {
+  background-color: var(--app-surface) !important;
+}
+
+html[data-theme="light"] .bg-zinc-800,
+html[data-theme="light"] .bg-zinc-800\/50 {
+  background-color: var(--app-surface-2) !important;
+}
+
+html[data-theme="light"] .bg-zinc-700 {
+  background-color: var(--app-surface-3) !important;
+}
+
+html[data-theme="light"] .bg-zinc-600 {
+  background-color: #94a3b8 !important;
+}
+
+html[data-theme="light"] .border-zinc-800,
+html[data-theme="light"] .border-zinc-700,
+html[data-theme="light"] .border-zinc-700\/50 {
+  border-color: var(--app-border) !important;
+}
+
+html[data-theme="light"] .text-zinc-100,
+html[data-theme="light"] .text-zinc-200,
+html[data-theme="light"] .text-zinc-300 {
+  color: var(--app-text-strong) !important;
+}
+
+html[data-theme="light"] .text-zinc-400,
+html[data-theme="light"] .text-zinc-500,
+html[data-theme="light"] .text-zinc-600 {
+  color: var(--app-muted) !important;
+}
+
+html[data-theme="light"] .text-amber-500 {
+  color: var(--app-accent) !important;
+}
+
+html[data-theme="light"] .hover\:bg-zinc-800:hover,
+html[data-theme="light"] .hover\:bg-zinc-700:hover,
+html[data-theme="light"] .hover\:bg-zinc-600:hover {
+  background-color: var(--app-surface-3) !important;
+}
+
+html[data-theme="light"] .hover\:text-zinc-300:hover,
+html[data-theme="light"] .hover\:text-zinc-400:hover {
+  color: var(--app-text-strong) !important;
+}
+
+html[data-theme="light"] .focus\:border-amber-500:focus {
+  border-color: var(--app-accent) !important;
+}
 </style>
 </head>
 <body class="bg-zinc-950 text-zinc-300 font-sans text-sm min-h-screen flex flex-col">
@@ -655,10 +740,24 @@ if (window.location.hostname === 'localhost' || window.location.hostname === '12
 }
 function isAllowedOrigin(origin) { return ALLOWED_ORIGINS.includes(origin) || origin.endsWith('.pages.dev'); }
 
+function applyTheme(theme, payload) {
+  const resolvedTheme = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', resolvedTheme);
+  const metaThemeColor = document.getElementById('meta-theme-color');
+  if (metaThemeColor) {
+    metaThemeColor.setAttribute('content', resolvedTheme === 'light' ? '#f8fafc' : '#09090b');
+  }
+  if (payload && payload.accentColor) {
+    document.documentElement.style.setProperty('--app-accent', payload.accentColor);
+  }
+}
+
 // postMessage handler for portal theme bridge
 window.addEventListener('message', function(e) {
   if (!isAllowedOrigin(e.origin)) return;
-  // Theme messages can be handled here when theme bridge is added
+  if (e.data && e.data.type === 'theme-change') {
+    applyTheme(e.data.theme, e.data);
+  }
 });
 if (window.parent !== window) {
   try { window.parent.postMessage({ type: 'theme-request' }, '*'); } catch(e) {}
